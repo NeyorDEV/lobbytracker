@@ -185,7 +185,15 @@ pub fn run() {
                 schedule_position_save(window.app_handle(), *pos);
             }
             WindowEvent::CloseRequested { .. } if window.label() == "main" => {
-                window.app_handle().exit(0);
+                // Détruit d'abord overlay et fenêtres de scraping pour que WebView2 libère
+                // proprement ses classes de fenêtre avant la sortie du processus.
+                let app = window.app_handle();
+                for (label, w) in app.webview_windows() {
+                    if label != "main" {
+                        let _ = w.destroy();
+                    }
+                }
+                app.exit(0);
             }
             _ => {}
         })
