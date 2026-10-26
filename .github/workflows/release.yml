@@ -1,0 +1,29 @@
+name: Release
+
+# Publie un installeur Windows (.exe NSIS) sur GitHub Releases quand on pousse un tag `vX.Y.Z`.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install tauri-cli --version "^2" --locked
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: cargo tauri
+          projectPath: .
+          tagName: ${{ github.ref_name }}
+          releaseName: "LobbyTracker ${{ github.ref_name }}"
+          releaseBody: "Installeur Windows (NSIS). Windows peut afficher SmartScreen : l'exécutable n'est pas signé."
+          releaseDraft: true
