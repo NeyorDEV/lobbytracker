@@ -1,0 +1,24 @@
+[package]
+name = "lobbytracker"
+version.workspace = true
+edition.workspace = true
+description = "Radar d'avant-match passif pour Rocket League"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-global-shortcut = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+tracker-core = { workspace = true }
+tracker-engine = { workspace = true }
+tracker-scraper = { workspace = true }
+
+[lib]
+name = "lobbytracker_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]

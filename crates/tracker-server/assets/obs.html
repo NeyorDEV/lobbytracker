@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>LobbyTracker – OBS</title>
+<!-- Source Navigateur OBS : http://127.0.0.1:49124/obs  (fond transparent) -->
+<style>
+  html, body { margin: 0; background: transparent; font: 600 15px "Segoe UI", system-ui, sans-serif; color: #fff; }
+  #root { padding: 8px; width: 380px; }
+  .card { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 6px 10px;
+          background: rgba(12, 14, 20, .82); border-left: 4px solid #888; border-radius: 6px; }
+  .card.opponent { border-left-color: #ff7a2b; }
+  .card.teammate { border-left-color: #3b9dff; }
+  .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ranks { font-size: 12px; color: #c9d1e0; font-weight: 500; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: #7b2cff; }
+  .badge.smurf_suspect { background: #e03a3a; }
+  .badge.on_tilt { background: #888; }
+  .idx { font-size: 12px; color: #ffcf5c; }
+  .loading { color: #9aa4b8; font-weight: 400; font-size: 12px; }
+  #pending { font-size: 11px; color: #9aa4b8; margin: 0 0 4px 4px; }
+</style>
+</head>
+<body>
+<div id="root"><div id="pending"></div><div id="list"></div></div>
+<script>
+  const list = document.getElementById("list"), pending = document.getElementById("pending");
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  function render(s) {
+    pending.textContent = s.pending ? "Analyse… (" + s.pending + ")" : "";
+    list.innerHTML = s.players.map(p => {
+      const ranks = p.ranks.map(r => r.label + " " + esc(r.tier_name)).join(" · ");
+      const badges = p.badges.map((b, i) => '<span class="badge ' + b + '">' + esc(p.badge_labels[i]) + "</span>").join("");
+      const idx = p.smurf_index >= 50 ? ' <span class="idx">Smurf ' + p.smurf_index + "</span>" : "";
+      const body = p.status === "loading" ? '<div class="loading">chargement…</div>'
+                 : p.status === "failed" ? '<div class="loading">indisponible</div>'
+                 : '<div class="ranks">' + ranks + "</div>" + (badges ? '<div class="badges">' + badges + "</div>" : "");
+      return '<div class="card ' + p.relation + '"><div class="name">' + esc(p.name) + idx + body + "</div></div>";
+    }).join("");
+  }
+  function connect() {
+    const ws = new WebSocket("ws://" + location.host + "/ws");
+    ws.onmessage = e => render(JSON.parse(e.data));
+    ws.onclose = () => setTimeout(connect, 1500);
+  }
+  connect();
+</script>
+</body>
+</html>

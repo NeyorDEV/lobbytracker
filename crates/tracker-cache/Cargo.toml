@@ -1,0 +1,12 @@
+[package]
+name = "tracker-cache"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tracker-core = { workspace = true }
+rusqlite = { workspace = true }
+thiserror = { workspace = true }
+
+
+[dev-dependencies]

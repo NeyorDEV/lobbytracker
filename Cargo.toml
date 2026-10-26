@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tracker-core",
+    "crates/tracker-parser",
+    "crates/tracker-cache",
+    "crates/tracker-heuristics",
+    "crates/tracker-watcher",
+    "crates/tracker-scraper",
+    "crates/tracker-server",
+    "crates/tracker-engine",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "net", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+regex = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+axum = { version = "0.7", features = ["ws"] }
+futures-util = "0.3"
+async-trait = "0.1"
+tracing = "0.1"
+dirs = "5"
+
+tracker-core = { path = "crates/tracker-core" }
+tracker-parser = { path = "crates/tracker-parser" }
+tracker-cache = { path = "crates/tracker-cache" }
+tracker-heuristics = { path = "crates/tracker-heuristics" }
+tracker-watcher = { path = "crates/tracker-watcher" }
+tracker-scraper = { path = "crates/tracker-scraper" }
+tracker-server = { path = "crates/tracker-server" }
+tracker-engine = { path = "crates/tracker-engine" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

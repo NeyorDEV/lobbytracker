@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "scraper",
+  "description": "Fenêtres masquées de scraping : une seule commande, sur api.tracker.gg uniquement",
+  "windows": ["scrape-*"],
+  "remote": { "urls": ["https://api.tracker.gg/*"] },
+  "permissions": ["allow-submit-scrape"]
+}

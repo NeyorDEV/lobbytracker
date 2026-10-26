@@ -1,0 +1,14 @@
+[package]
+name = "tracker-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tracker-core = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+axum = { workspace = true }
+futures-util = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+

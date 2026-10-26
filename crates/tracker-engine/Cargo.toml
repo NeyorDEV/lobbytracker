@@ -1,0 +1,22 @@
+[package]
+name = "tracker-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tracker-core = { workspace = true }
+tracker-parser = { workspace = true }
+tracker-cache = { workspace = true }
+tracker-heuristics = { workspace = true }
+tracker-watcher = { workspace = true }
+tracker-scraper = { workspace = true }
+tracker-server = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+
+
+[dev-dependencies]
+tokio = { workspace = true }

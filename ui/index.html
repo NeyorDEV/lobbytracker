@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>LobbyTracker</title>
+<style>
+  :root { --bg:#0f1218; --card:#171b24; --line:#262c3a; --fg:#e6e9f0; --mute:#8a93a6; --accent:#ff7a2b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 20px; margin: 0 0 4px; } h1 span { color: var(--accent); }
+  p.sub { margin: 0 0 18px; color: var(--mute); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--mute); margin: 0 0 10px; }
+  label.check { display: flex; gap: 10px; align-items: flex-start; padding: 5px 0; cursor: pointer; }
+  label.check small { display: block; color: var(--mute); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .field label { display: block; color: var(--mute); font-size: 12px; margin-bottom: 3px; }
+  input[type=text], input[type=password], input[type=number] {
+    width: 100%; padding: 7px 9px; background: #0c0f14; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+  input[type=checkbox] { margin-top: 3px; accent-color: var(--accent); }
+  button { background: var(--accent); color: #111; border: 0; font-weight: 700; padding: 9px 18px; border-radius: 7px; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  .actions { display: flex; gap: 10px; align-items: center; }
+  #msg { color: var(--mute); } #msg.err { color: #ff6b6b; } #msg.ok { color: #7bd88f; }
+  code { background: #0c0f14; padding: 1px 6px; border-radius: 4px; }
+  .pl { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .pl:last-child { border: 0; } .tag { color: #ffcf5c; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lobby<span>Tracker</span></h1>
+  <p class="sub">Radar d'avant-match passif — aucune injection, aucun hook, lecture seule de <code>Launch.log</code>.</p>
+
+  <section>
+    <h2>Badges et alertes</h2>
+    <label class="check"><input type="checkbox" data-f="smurf_suspect"><span>Alerte smurf suspect<small>Compte à peu de victoires totales à haut rang (Champion 2+).</small></span></label>
+    <label class="check"><input type="checkbox" data-f="one_v_one_specialist"><span>Spécialiste 1v1 / menace mécanique<small>Rang 1v1 anormalement élevé par rapport au lobby.</small></span></label>
+    <label class="check"><input type="checkbox" data-f="demolisher"><span>Démolisseur / physical player<small>Ratio de démolitions par match nettement supérieur à la moyenne.</small></span></label>
+    <label class="check"><input type="checkbox" data-f="defensive_anchor"><span>Ancre défensive / 3rd man<small>Beaucoup d'arrêts, peu de buts.</small></span></label>
+    <label class="check"><input type="checkbox" data-f="on_tilt"><span>En tilt / série noire<small>4 défaites consécutives ou plus (requête supplémentaire par joueur).</small></span></label>
+    <label class="check"><input type="checkbox" data-f="peak_disparity"><span>Écart de rang historique<small>A déjà atteint un rang bien supérieur au rang actuel.</small></span></label>
+    <label class="check"><input type="checkbox" data-f="only_opponents"><span>Afficher uniquement les adversaires<small>Masque le profilage des coéquipiers.</small></span></label>
+  </section>
+
+  <section>
+    <h2>Overlay</h2>
+    <div class="grid">
+      <div class="field"><label>Raccourci afficher / masquer</label><input type="text" id="overlay_hotkey" placeholder="F9"></div>
+      <div class="field"><label>Raccourci click-through</label><input type="text" id="click_through_hotkey" placeholder="Ctrl+Shift+C"></div>
+    </div>
+    <label class="check"><input type="checkbox" id="click_through"><span>Click-through (la souris traverse l'overlay)<small>Une fois actif, l'overlay ne peut plus être déplacé : utilisez le raccourci pour le désactiver.</small></span></label>
+    <p style="color:var(--mute);margin:6px 0 0">Déplacez l'overlay par sa barre supérieure : la position est sauvegardée automatiquement.</p>
+  </section>
+
+  <section>
+    <h2>Joueur et sources</h2>
+    <div class="grid">
+      <div class="field"><label>Votre pseudo en jeu (distingue coéquipiers / adversaires)</label><input type="text" id="self_name"></div>
+      <div class="field"><label>Ou votre identifiant (Epic / SteamID64)</label><input type="text" id="self_id"></div>
+      <div class="field"><label>Jeton API Tracker Network (repli)</label><input type="password" id="trn_api_key" placeholder="optionnel"></div>
+      <div class="field"><label>Chemin de Launch.log (vide = automatique)</label><input type="text" id="log_path"></div>
+    </div>
+    <label class="check"><input type="checkbox" id="use_webview_scraper"><span>Scraper WebView2 invisible (contourne Cloudflare)</span></label>
+    <label class="check"><input type="checkbox" id="stats_api_enabled"><span>Écouter la Stats API locale (équipes en direct)<small>Nécessite <code>PacketSendRate</code> &gt; 0 dans <code>DefaultStatsAPI.ini</code> du jeu.</small></span></label>
+  </section>
+
+  <section>
+    <h2>Avancé</h2>
+    <div class="grid">
+      <div class="field"><label>Port Stats API</label><input type="number" id="stats_api_port"></div>
+      <div class="field"><label>Port serveur local (OBS)</label><input type="number" id="server_port"></div>
+      <div class="field"><label>Durée du cache (heures)</label><input type="number" id="cache_ttl_hours"></div>
+      <div class="field"><label>Smurf : victoires max</label><input type="number" id="smurf_max_wins"></div>
+      <div class="field"><label>Smurf : tier min (17 = Champion 2)</label><input type="number" id="smurf_min_tier"></div>
+    </div>
+    <p style="color:var(--mute)">Source navigateur OBS : <code id="obs"></code> — les ports et chemins demandent un redémarrage.</p>
+  </section>
+
+  <div class="actions"><button id="save">Enregistrer</button><button class="ghost" id="toggle">Afficher / masquer l'overlay</button><span id="msg"></span></div>
+
+  <section style="margin-top:14px">
+    <h2>Lobby en direct</h2>
+    <div id="players"><span style="color:var(--mute)">En attente d'un lobby…</span></div>
+  </section>
+</main>
+<script>
+  const { invoke } = window.__TAURI__.core;
+  const { listen } = window.__TAURI__.event;
+  const $ = id => document.getElementById(id);
+  const TEXT = ["overlay_hotkey", "click_through_hotkey", "self_name", "self_id", "trn_api_key", "log_path"];
+  const BOOL = ["click_through", "use_webview_scraper", "stats_api_enabled"];
+  const NUM = ["stats_api_port", "server_port", "cache_ttl_hours", "smurf_max_wins", "smurf_min_tier"];
+  let config;
+
+  function say(text, cls) { const m = $("msg"); m.textContent = text; m.className = cls || ""; }
+
+  function fill(c) {
+    config = c;
+    document.querySelectorAll("[data-f]").forEach(el => el.checked = !!c.filters[el.dataset.f]);
+    TEXT.forEach(k => $(k).value = c[k] ?? "");
+    BOOL.forEach(k => $(k).checked = !!c[k]);
+    NUM.forEach(k => $(k).value = c[k]);
+    $("obs").textContent = "http://127.0.0.1:" + c.server_port + "/obs";
+  }
+
+  function collect() {
+    const c = structuredClone(config);
+    document.querySelectorAll("[data-f]").forEach(el => c.filters[el.dataset.f] = el.checked);
+    TEXT.forEach(k => c[k] = $(k).value.trim() === "" ? (k.includes("hotkey") ? config[k] : null) : $(k).value.trim());
+    BOOL.forEach(k => c[k] = $(k).checked);
+    NUM.forEach(k => c[k] = Number($(k).value));
+    return c;
+  }
+
+  $("save").onclick = async () => {
+    try { await invoke("save_config", { config: collect() }); fill(await invoke("get_config")); say("Enregistré.", "ok"); }
+    catch (e) { say(String(e), "err"); }
+  };
+  $("toggle").onclick = () => invoke("toggle_overlay");
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  function renderPlayers(s) {
+    if (!s.players.length) { $("players").innerHTML = '<span style="color:var(--mute)">En attente d\'un lobby…</span>'; return; }
+    $("players").innerHTML = s.players.map(p =>
+      '<div class="pl"><span>' + esc(p.name) + ' <small style="color:var(--mute)">' + p.relation + "</small></span><span>"
+      + (p.status === "ready" ? esc(p.best_tier_name) + p.badge_labels.map(l => ' <span class="tag">' + esc(l) + "</span>").join("") : p.status === "loading" ? "chargement…" : "indisponible")
+      + "</span></div>").join("");
+  }
+
+  listen("lobby-snapshot", e => renderPlayers(e.payload));
+  listen("engine-error", e => say("Moteur : " + e.payload, "err"));
+  invoke("get_config").then(fill);
+  invoke("get_snapshot").then(renderPlayers);
+</script>
+</body>
+</html>

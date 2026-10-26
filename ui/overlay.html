@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>LobbyTracker Overlay</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; user-select: none;
+               font: 600 14px "Segoe UI", system-ui, sans-serif; color: #fff; }
+  #bar { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 8px; cursor: move;
+         background: rgba(12, 14, 20, .55); border-radius: 6px 6px 0 0; font-size: 11px; color: #9aa4b8; }
+  #bar .title { flex: 1; letter-spacing: .08em; text-transform: uppercase; }
+  #dot { width: 8px; height: 8px; border-radius: 50%; background: #ffcf5c; opacity: 0; transition: opacity .2s; }
+  #dot.on { opacity: 1; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  #lock { display: none; }
+  #lock.on { display: inline; color: #7bd88f; }
+  .card { margin-top: 4px; padding: 6px 10px; background: rgba(12, 14, 20, .82);
+          border-left: 4px solid #888; border-radius: 6px; }
+  .card.opponent { border-left-color: #ff7a2b; }
+  .card.teammate { border-left-color: #3b9dff; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .idx { color: #ffcf5c; font-size: 12px; }
+  .ranks, .loading { font-size: 12px; color: #c9d1e0; font-weight: 500; }
+  .loading { color: #9aa4b8; font-weight: 400; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: #7b2cff; }
+  .badge.smurf_suspect { background: #e03a3a; }
+  .badge.on_tilt { background: #6b7280; }
+  .badge.peak_disparity { background: #b7791f; }
+  #empty { margin-top: 4px; padding: 8px 10px; font-size: 12px; font-weight: 400; color: #9aa4b8;
+           background: rgba(12, 14, 20, .6); border-radius: 6px; }
+</style>
+</head>
+<body>
+<div id="bar" data-tauri-drag-region>
+  <span class="title" data-tauri-drag-region>LobbyTracker</span>
+  <span id="lock">verrouillé</span>
+  <span id="dot" title="Analyse en cours"></span>
+</div>
+<div id="list"></div>
+<script>
+  const { listen } = window.__TAURI__.event;
+  const { invoke } = window.__TAURI__.core;
+  const list = document.getElementById("list");
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function render(s) {
+    document.getElementById("dot").classList.toggle("on", s.pending > 0);
+    if (!s.players.length) {
+      list.innerHTML = '<div id="empty">En attente d\'un lobby…</div>';
+      return;
+    }
+    list.innerHTML = s.players.map(p => {
+      const idx = p.smurf_index >= 50 ? '<span class="idx">Smurf ' + p.smurf_index + "</span>" : "";
+      let body;
+      if (p.status === "loading") body = '<div class="loading">chargement…</div>';
+      else if (p.status === "failed") body = '<div class="loading">profil indisponible</div>';
+      else {
+        const ranks = p.ranks.map(r => r.label + " " + esc(r.tier_name)).join(" · ");
+        const badges = p.badges.map((b, i) => '<span class="badge ' + b + '">' + esc(p.badge_labels[i]) + "</span>").join("");
+        body = '<div class="ranks">' + ranks + "</div>" + (badges ? '<div class="badges">' + badges + "</div>" : "");
+      }
+      return '<div class="card ' + p.relation + '"><div class="row"><span class="name">' + esc(p.name) + "</span>" + idx + "</div>" + body + "</div>";
+    }).join("");
+  }
+
+  listen("lobby-snapshot", e => render(e.payload));
+  listen("click-through", e => document.getElementById("lock").classList.toggle("on", !!e.payload));
+  invoke("get_snapshot").then(render);
+  invoke("get_config").then(c => document.getElementById("lock").classList.toggle("on", c.click_through));
+</script>
+</body>
+</html>

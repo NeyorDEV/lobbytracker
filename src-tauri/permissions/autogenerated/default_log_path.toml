@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-default-log-path"
+description = "Enables the default_log_path command without any pre-configured scope."
+commands.allow = ["default_log_path"]
+
+[[permission]]
+identifier = "deny-default-log-path"
+description = "Denies the default_log_path command without any pre-configured scope."
+commands.deny = ["default_log_path"]

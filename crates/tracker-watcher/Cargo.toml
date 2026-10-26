@@ -1,0 +1,13 @@
+[package]
+name = "tracker-watcher"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+
+[dev-dependencies]
+tokio = { workspace = true }
