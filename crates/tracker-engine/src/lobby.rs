@@ -109,6 +109,10 @@ impl Lobby {
         }
     }
 
+    pub fn remove(&mut self, id: &PlayerId) {
+        self.players.retain(|p| &p.id != id);
+    }
+
     pub fn entries(&self) -> &[LobbyEntry] {
         &self.players
     }

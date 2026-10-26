@@ -57,6 +57,8 @@ struct Inner {
     snapshots: broadcast::Sender<LobbySnapshot>,
     webview: Option<WebviewSource>,
     parser: LogParser,
+    /// Compte local lu dans `Launch.log` ; les champs de la config le surchargent.
+    detected_self: Mutex<Option<(PlayerId, Option<String>)>>,
 }
 
 pub struct Engine {
@@ -87,6 +89,7 @@ impl Engine {
             snapshots,
             webview,
             parser: LogParser::new(),
+            detected_self: Mutex::new(None),
         });
 
         let mut sources: Vec<Arc<dyn Fetcher>> = Vec::new();
@@ -144,6 +147,11 @@ impl Engine {
         *self.server.lock().unwrap() = Some(server);
 
         let mut tasks = Vec::new();
+
+        // Le jeu est souvent déjà lancé : on retrouve le compte local dans l'historique du log.
+        if let Some(path) = cfg.effective_log_path() {
+            inner.bootstrap_self_from(&path);
+        }
 
         // File d'attente + worker réseau.
         let (out_tx, mut out_rx) = mpsc::unbounded_channel();
@@ -235,8 +243,29 @@ impl Inner {
         }
     }
 
+    /// Parcourt le log existant (lecture seule) pour trouver la dernière connexion locale.
+    fn bootstrap_self_from(&self, path: &Path) {
+        const MAX_BYTES: u64 = 64 * 1024 * 1024;
+        let Ok(meta) = std::fs::metadata(path) else { return };
+        if meta.len() > MAX_BYTES {
+            return;
+        }
+        let Ok(bytes) = std::fs::read(path) else { return };
+        let text = String::from_utf8_lossy(&bytes);
+        let last = text.lines().filter_map(|l| self.parser.parse_local_player(l)).last();
+        if let Some(ev) = last {
+            self.handle_parsed(ev);
+        }
+    }
+
     fn handle_parsed(&self, ev: ParsedEvent) {
         match ev {
+            ParsedEvent::LocalPlayer { id, name } => {
+                tracing::info!("joueur local détecté : {} ({id})", name.as_deref().unwrap_or("?"));
+                self.lobby.lock().unwrap().remove(&id);
+                *self.detected_self.lock().unwrap() = Some((id, name));
+                self.emit();
+            }
             ParsedEvent::LobbyReset => {
                 self.queue.clear();
                 self.lobby.lock().unwrap().reset();
@@ -248,6 +277,13 @@ impl Inner {
 
     fn is_self(&self, id: &PlayerId, name: Option<&str>) -> bool {
         let cfg = self.cfg.read().unwrap();
+        if let Some((did, dname)) = self.detected_self.lock().unwrap().as_ref() {
+            let by_detected_name = matches!((dname.as_deref(), name),
+                (Some(me), Some(n)) if me.eq_ignore_ascii_case(n));
+            if did == id || by_detected_name {
+                return true;
+            }
+        }
         let by_id = cfg
             .self_id
             .as_deref()
@@ -320,7 +356,18 @@ impl Inner {
             players: tracker_heuristics::build_views(lobby.entries(), &cfg),
             pending: lobby.loading_count(),
             updated_at: unix_now(),
+            me: self.me_label(&cfg),
         }
+    }
+
+    fn me_label(&self, cfg: &Config) -> Option<String> {
+        if let Some(n) = cfg.self_name.as_deref().filter(|n| !n.is_empty()) {
+            return Some(n.to_string());
+        }
+        let d = self.detected_self.lock().unwrap();
+        d.as_ref().map(|(id, name)| {
+            format!("{} · {}", name.as_deref().unwrap_or("?"), id.platform.as_str())
+        })
     }
 
     fn emit(&self) {
@@ -411,6 +458,28 @@ mod tests {
         let snap = e.snapshot();
         assert_eq!(snap.players.len(), 1);
         assert_eq!(snap.players[0].name, "Foe");
+    }
+
+    #[test]
+    fn local_player_is_detected_from_log_history_and_excluded() {
+        let e = engine(Config::default());
+        let dir = std::env::temp_dir().join(format!("lt-boot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("Launch.log");
+        std::fs::write(
+            &log,
+            "noise\nParty: HandleLocalPlayerLoginStatusChanged PlayerName=neyor. PlayerID=Epic|6897812333f244858dddff1fbb06554f|0 LoginStatus=LS_LoggedIn IsPrimary=True IsInParty=False\n",
+        )
+        .unwrap();
+        e.inner.bootstrap_self_from(&log);
+        assert_eq!(e.snapshot().me.as_deref(), Some("neyor. · epic"));
+
+        // Le joueur local n'apparaît jamais dans le lobby, ni via son id ni via son pseudo.
+        let me = PlayerId::new(Platform::Epic, "6897812333f244858dddff1fbb06554f");
+        e.inject_player(me, None, Some(Team::Blue));
+        e.inject_player(id(7), Some("neyor.".into()), Some(Team::Blue));
+        assert!(e.snapshot().players.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

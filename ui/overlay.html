@@ -35,6 +35,7 @@
 <body>
 <div id="bar" data-tauri-drag-region>
   <span class="title" data-tauri-drag-region>LobbyTracker</span>
+  <span id="who"></span>
   <span id="lock">verrouillé</span>
   <span id="dot" title="Analyse en cours"></span>
 </div>
@@ -46,6 +47,7 @@
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   function render(s) {
+    document.getElementById("who").textContent = s.me || "";
     document.getElementById("dot").classList.toggle("on", s.pending > 0);
     if (!s.players.length) {
       list.innerHTML = '<div id="empty">En attente d\'un lobby…</div>';

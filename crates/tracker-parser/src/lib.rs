@@ -30,6 +30,8 @@ pub enum ParsedEvent {
     PlayerSeen { id: PlayerId, name: Option<String>, team: Option<Team>, context: SeenContext },
     /// Nouveau match / retour au menu : la liste des joueurs doit être vidée.
     LobbyReset,
+    /// Joueur local (compte connecté sur cette machine), lu dans la ligne de connexion du jeu.
+    LocalPlayer { id: PlayerId, name: Option<String> },
 }
 
 static TYPED_ID: LazyLock<Regex> = LazyLock::new(|| {
@@ -41,10 +43,16 @@ static TYPED_ID: LazyLock<Regex> = LazyLock::new(|| {
 static BARE_EPIC: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\b(?P<id>[0-9a-f]{32})\b").unwrap());
 static BARE_STEAM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?P<id>7656119\d{10})\b").unwrap());
+static LOCAL_PLAYER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"HandleLocalPlayerLoginStatusChanged\s+PlayerName=(?P<n>.+?)\s+PlayerID=(?P<id>\S+)\s+LoginStatus=LS_LoggedIn\s+IsPrimary=True",
+    )
+    .unwrap()
+});
 static CONNECTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)BeaconJoin|LogNet.*(join|login|connect)|PlayerJoin").unwrap());
 static NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)\b(?:player ?name|name)\s*[=:]\s*"?(?P<n>[^"|,\r\n]+?)"?\s*(?:[,|;)\]]|$)"#).unwrap()
+    Regex::new(r#"(?i)\b(?:player ?name|name)\s*[=:]\s*"?(?P<n>[^"|,\r\n?&]+?)"?\s*(?:[,|;)\]?&]|\s\w+=|$)"#).unwrap()
 });
 static RESET: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\bLoadMap\b|MatchEnded|Match_Ended|NewMatch|LeaveMatch|Lobby ?Reset").unwrap()
@@ -94,8 +102,19 @@ impl LogParser {
         Self
     }
 
+    /// Détecte uniquement la connexion du joueur local (utilisé aussi sur l'historique du log).
+    pub fn parse_local_player(&self, line: &str) -> Option<ParsedEvent> {
+        let c = LOCAL_PLAYER.captures(line)?;
+        let id = typed_ids(&c["id"]).into_iter().next()?;
+        let name = Some(c["n"].trim().to_string()).filter(|n| !n.is_empty());
+        Some(ParsedEvent::LocalPlayer { id, name })
+    }
+
     /// Analyse une ligne de `Launch.log`.
     pub fn parse_line(&self, line: &str) -> Vec<ParsedEvent> {
+        if let Some(local) = self.parse_local_player(line) {
+            return vec![local];
+        }
         let mut events = Vec::new();
         if RESET.is_match(line) {
             events.push(ParsedEvent::LobbyReset);
@@ -225,6 +244,43 @@ mod tests {
     fn duplicate_ids_on_same_line_are_merged() {
         let line = format!("BeaconJoin Epic|{EPIC}|0 again Epic|{EPIC}|0");
         assert_eq!(seen(&LogParser::new().parse_line(&line)).len(), 1);
+    }
+
+    #[test]
+    fn local_player_login_line_from_real_log() {
+        let line = "[0023.09] Party: HandleLocalPlayerLoginStatusChanged PlayerName=neyor. PlayerID=Epic|6897812333f244858dddff1fbb06554f|0 LoginStatus=LS_LoggedIn IsPrimary=True IsInParty=False";
+        let ev = LogParser::new().parse_line(line);
+        assert_eq!(
+            ev,
+            vec![ParsedEvent::LocalPlayer {
+                id: PlayerId::new(Platform::Epic, "6897812333f244858dddff1fbb06554f"),
+                name: Some("neyor.".into())
+            }]
+        );
+    }
+
+    #[test]
+    fn logged_out_or_secondary_player_is_not_local() {
+        let p = LogParser::new();
+        let out = "Party: HandleLocalPlayerLoginStatusChanged PlayerName=x PlayerID=Epic|6897812333f244858dddff1fbb06554f|0 LoginStatus=LS_NotLoggedIn IsPrimary=True";
+        assert!(p.parse_local_player(out).is_none());
+        let sec = "Party: HandleLocalPlayerLoginStatusChanged PlayerName=x PlayerID=Epic|6897812333f244858dddff1fbb06554f|0 LoginStatus=LS_LoggedIn IsPrimary=False";
+        assert!(p.parse_local_player(sec).is_none());
+    }
+
+    #[test]
+    fn real_party_and_uncached_lines_yield_ids() {
+        let p = LogParser::new();
+        let a = p.parse_line("[1192.04] ScriptLog: Uncached PlatformId for Epic|07375e4935f4407fb2c92312adc1e14f|0");
+        assert_eq!(seen(&a).len(), 1);
+        let b = p.parse_line("[1191.85] Party: HandleLobbyMemberStatusUpdate LobbyUID=PsyNet-FdPLXBbD Members=2 MemberIndex=1 MemberID=Epic|07375e4935f4407fb2c92312adc1e14f|0");
+        assert_eq!(seen(&b).len(), 1);
+    }
+
+    #[test]
+    fn name_stops_before_next_key_value() {
+        let ev = LogParser::new().parse_line(&format!("Join PlayerName=Zen Pro PlayerUID=Epic|{EPIC}|0"));
+        assert_eq!(seen(&ev)[0].1, Some("Zen Pro"));
     }
 
     #[test]

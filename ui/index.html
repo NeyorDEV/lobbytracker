@@ -56,9 +56,10 @@
 
   <section>
     <h2>Joueur et sources</h2>
+    <p style="margin:0 0 10px">Compte détecté : <strong id="me">en attente de Rocket League…</strong></p>
     <div class="grid">
-      <div class="field"><label>Votre pseudo en jeu (distingue coéquipiers / adversaires)</label><input type="text" id="self_name"></div>
-      <div class="field"><label>Ou votre identifiant (Epic / SteamID64)</label><input type="text" id="self_id"></div>
+      <div class="field"><label>Votre pseudo (laisser vide = détection automatique)</label><input type="text" id="self_name" placeholder="auto"></div>
+      <div class="field"><label>Votre identifiant (vide = automatique)</label><input type="text" id="self_id" placeholder="auto"></div>
       <div class="field"><label>Jeton API Tracker Network (repli)</label><input type="password" id="trn_api_key" placeholder="optionnel"></div>
       <div class="field"><label>Chemin de Launch.log (vide = automatique)</label><input type="text" id="log_path"></div>
     </div>
@@ -122,6 +123,7 @@
 
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function renderPlayers(s) {
+    $("me").textContent = s.me || "en attente de Rocket League…";
     if (!s.players.length) { $("players").innerHTML = '<span style="color:var(--mute)">En attente d\'un lobby…</span>'; return; }
     $("players").innerHTML = s.players.map(p =>
       '<div class="pl"><span>' + esc(p.name) + ' <small style="color:var(--mute)">' + p.relation + "</small></span><span>"

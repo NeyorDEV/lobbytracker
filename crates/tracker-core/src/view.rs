@@ -63,4 +63,7 @@ pub struct LobbySnapshot {
     /// Nombre de joueurs encore en cours de résolution.
     pub pending: usize,
     pub updated_at: i64,
+    /// Joueur local détecté ou configuré (ex. « neyor. · epic »).
+    #[serde(default)]
+    pub me: Option<String>,
 }
