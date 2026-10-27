@@ -1987,7 +1987,7 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
 name = "lobbytracker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4246,7 +4246,7 @@ dependencies = [
 
 [[package]]
 name = "tracker-cache"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rusqlite",
  "thiserror 2.0.21",
@@ -4255,7 +4255,7 @@ dependencies = [
 
 [[package]]
 name = "tracker-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs 5.0.1",
  "serde",
@@ -4265,7 +4265,7 @@ dependencies = [
 
 [[package]]
 name = "tracker-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4283,14 +4283,14 @@ dependencies = [
 
 [[package]]
 name = "tracker-heuristics"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tracker-core",
 ]
 
 [[package]]
 name = "tracker-parser"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "regex",
  "serde_json",
@@ -4300,7 +4300,7 @@ dependencies = [
 
 [[package]]
 name = "tracker-scraper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "reqwest 0.12.28",
@@ -4314,7 +4314,7 @@ dependencies = [
 
 [[package]]
 name = "tracker-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "axum",
  "futures-util",
@@ -4327,7 +4327,7 @@ dependencies = [
 
 [[package]]
 name = "tracker-watcher"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "thiserror 2.0.21",
  "tokio",
