@@ -51,6 +51,48 @@ pub enum OverlayLayout {
     CardHorizontal,
 }
 
+/// Emplacement de l'overlay : libre (glisser-déposer) ou accroché à un coin / bord de l'écran.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayAnchor {
+    #[default]
+    Free,
+    TopLeft,
+    TopCenter,
+    TopRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+impl OverlayAnchor {
+    /// Position (coin haut-gauche de la fenêtre) en pixels physiques, ou `None` si libre.
+    /// `monitor` = (x, y, largeur, hauteur), `window` = (largeur, hauteur).
+    pub fn position(
+        self,
+        monitor: (i32, i32, i32, i32),
+        window: (i32, i32),
+        margin: (i32, i32),
+    ) -> Option<(i32, i32)> {
+        let (mx, my, mw, mh) = monitor;
+        let (ww, wh) = window;
+        let left = mx + margin.0;
+        let center = mx + (mw - ww) / 2;
+        let right = mx + mw - ww - margin.0;
+        let top = my + margin.1;
+        let bottom = my + mh - wh - margin.1;
+        Some(match self {
+            OverlayAnchor::Free => return None,
+            OverlayAnchor::TopLeft => (left, top),
+            OverlayAnchor::TopCenter => (center, top),
+            OverlayAnchor::TopRight => (right, top),
+            OverlayAnchor::BottomLeft => (left, bottom),
+            OverlayAnchor::BottomCenter => (center, bottom),
+            OverlayAnchor::BottomRight => (right, bottom),
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OverlayPosition {
     pub x: i32,
@@ -69,6 +111,12 @@ pub struct Config {
     pub overlay_layout: OverlayLayout,
     /// Échelle de l'overlay en pourcentage (50 à 200).
     pub overlay_scale: u32,
+    /// Opacité du fond des cartes, en pourcentage (10 à 100).
+    pub overlay_opacity: u32,
+    pub overlay_anchor: OverlayAnchor,
+    /// Marges par rapport au bord de l'écran, en pixels logiques.
+    pub overlay_margin_x: u32,
+    pub overlay_margin_y: u32,
     /// Masque l'overlay quelques secondes après l'arrivée des joueurs d'un nouveau lobby.
     pub auto_hide_enabled: bool,
     pub auto_hide_seconds: u32,
@@ -102,6 +150,10 @@ impl Default for Config {
             click_through: false,
             overlay_layout: OverlayLayout::default(),
             overlay_scale: 100,
+            overlay_opacity: 82,
+            overlay_anchor: OverlayAnchor::default(),
+            overlay_margin_x: 24,
+            overlay_margin_y: 24,
             auto_hide_enabled: false,
             auto_hide_seconds: 30,
             overlay_position: None,
@@ -168,6 +220,21 @@ mod tests {
         assert_eq!(c.overlay_layout, OverlayLayout::CardHorizontal);
         assert_eq!(c.overlay_scale, 150);
         assert!(serde_json::to_string(&c).unwrap().contains("\"card_horizontal\""));
+    }
+
+    #[test]
+    fn anchors_compute_positions_on_a_monitor() {
+        let mon = (0, 0, 1920, 1080);
+        let win = (400, 200);
+        let m = (24, 24);
+        assert_eq!(OverlayAnchor::Free.position(mon, win, m), None);
+        assert_eq!(OverlayAnchor::TopLeft.position(mon, win, m), Some((24, 24)));
+        assert_eq!(OverlayAnchor::TopCenter.position(mon, win, m), Some((760, 24)));
+        assert_eq!(OverlayAnchor::TopRight.position(mon, win, m), Some((1496, 24)));
+        assert_eq!(OverlayAnchor::BottomLeft.position(mon, win, m), Some((24, 856)));
+        assert_eq!(OverlayAnchor::BottomRight.position(mon, win, m), Some((1496, 856)));
+        // Deuxième écran positionné à droite du premier.
+        assert_eq!(OverlayAnchor::TopLeft.position((1920, 0, 1280, 720), win, m), Some((1944, 24)));
     }
 
     #[test]

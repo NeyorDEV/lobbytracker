@@ -4,13 +4,14 @@
 <meta charset="utf-8">
 <title>LobbyTracker Overlay</title>
 <style>
+  :root { --a: .82; }
   html, body { margin: 0; background: transparent; overflow: hidden; user-select: none;
                font: 600 14px "Segoe UI", system-ui, sans-serif; color: #fff; }
   #wrap { display: inline-block; width: max-content; }
   #wrap.card_vertical { width: 360px; }
   #wrap.column { width: 480px; }
   #bar { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 8px; cursor: move;
-         background: rgba(12, 14, 20, .55); border-radius: 6px 6px 0 0; font-size: 11px; color: #9aa4b8; }
+         background: rgba(12, 14, 20, calc(var(--a) * .7)); border-radius: 6px 6px 0 0; font-size: 11px; color: #9aa4b8; }
   #bar .title { flex: 1; letter-spacing: .08em; text-transform: uppercase; }
   #dot { width: 8px; height: 8px; border-radius: 50%; background: #ffcf5c; opacity: 0; transition: opacity .2s; }
   #dot.on { opacity: 1; animation: pulse 1s infinite; }
@@ -22,9 +23,9 @@
   #list.card_vertical, #list.column { flex-direction: column; }
   #list.card_horizontal, #list.row { flex-direction: row; align-items: flex-start; }
 
-  .card { padding: 6px 10px; background: rgba(12, 14, 20, .82); border-left: 4px solid #888; border-radius: 6px; }
+  .card { padding: 6px 10px; background: rgba(12, 14, 20, var(--a)); border-left: 4px solid #888; border-radius: 6px; }
   #list.card_horizontal .card { width: 230px; flex: none; }
-  .chip { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: rgba(12, 14, 20, .82);
+  .chip { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: rgba(12, 14, 20, var(--a));
           border-left: 4px solid #888; border-radius: 6px; white-space: nowrap; }
   #list.row .chip { flex: none; }
   .opponent { border-left-color: #ff7a2b; }
@@ -44,7 +45,7 @@
   .badge.on_tilt { background: #6b7280; }
   .badge.peak_disparity { background: #b7791f; }
   #empty { margin-top: 4px; padding: 8px 10px; font-size: 12px; font-weight: 400; color: #9aa4b8;
-           background: rgba(12, 14, 20, .6); border-radius: 6px; white-space: nowrap; }
+           background: rgba(12, 14, 20, calc(var(--a) * .75)); border-radius: 6px; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -108,6 +109,14 @@
     $("wrap").className = layout;
     $("list").className = layout;
     $("wrap").style.zoom = scale / 100;
+    document.documentElement.style.setProperty("--a", String(Math.min(100, Math.max(10, c.overlay_opacity ?? 82)) / 100));
+    // Ancré : la position est imposée, donc pas de glisser-déposer.
+    const draggable = (c.overlay_anchor || "free") === "free";
+    for (const el of [$("bar"), document.querySelector("#bar .title")]) {
+      if (draggable) el.setAttribute("data-tauri-drag-region", "");
+      else el.removeAttribute("data-tauri-drag-region");
+    }
+    $("bar").style.cursor = draggable ? "move" : "default";
     $("lock").classList.toggle("on", !!c.click_through);
     render(lastSnapshot);
   }

@@ -10,7 +10,7 @@ use tauri::{
     WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use tracker_core::{Config, LobbySnapshot, OverlayPosition};
+use tracker_core::{Config, LobbySnapshot, OverlayAnchor, OverlayPosition};
 use tracker_engine::Engine;
 use tracker_scraper::WebviewDriver;
 
@@ -64,6 +64,7 @@ fn save_config(app: AppHandle, state: State<'_, AppState>, config: Config) -> Re
     config.save(&state.config_path).map_err(|e| e.to_string())?;
     state.engine.update_config(config.clone());
     let _ = app.emit("config-changed", &config);
+    apply_anchor(&app);
     apply_click_through(&app, config.click_through);
     register_shortcuts(&app, &config)
 }
@@ -168,6 +169,27 @@ fn register_shortcuts(app: &AppHandle, cfg: &Config) -> Result<(), String> {
     Ok(())
 }
 
+/// Place l'overlay sur l'emplacement choisi (coin ou bord de l'écran où il se trouve).
+fn apply_anchor(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let cfg = state.engine.config();
+    if cfg.overlay_anchor == OverlayAnchor::Free {
+        return;
+    }
+    let Some(w) = app.get_webview_window(OVERLAY) else { return };
+    let (Ok(Some(mon)), Ok(size)) = (w.current_monitor(), w.outer_size()) else { return };
+    let sf = mon.scale_factor();
+    let (mp, ms) = (mon.position(), mon.size());
+    let margin = ((f64::from(cfg.overlay_margin_x) * sf) as i32, (f64::from(cfg.overlay_margin_y) * sf) as i32);
+    if let Some((x, y)) = cfg.overlay_anchor.position(
+        (mp.x, mp.y, ms.width as i32, ms.height as i32),
+        (size.width as i32, size.height as i32),
+        margin,
+    ) {
+        let _ = w.set_position(PhysicalPosition::new(x, y));
+    }
+}
+
 /// Un nouveau lobby vient de se remplir : montre l'overlay puis le masque après le délai choisi.
 fn on_new_lobby(app: &AppHandle) {
     let state = app.state::<AppState>();
@@ -204,6 +226,9 @@ fn schedule_position_save(app: &AppHandle, pos: PhysicalPosition<i32>) {
             return;
         }
         let mut cfg = state.engine.config();
+        if cfg.overlay_anchor != OverlayAnchor::Free {
+            return; // position pilotée par l'ancrage, pas par le glisser-déposer
+        }
         cfg.overlay_position = Some(OverlayPosition { x: pos.x, y: pos.y });
         if let Err(e) = cfg.save(&state.config_path) {
             tracing::warn!("position de l'overlay non sauvegardée : {e}");
@@ -232,6 +257,10 @@ pub fn run() {
         .on_window_event(|window, event| match event {
             WindowEvent::Moved(pos) if window.label() == OVERLAY => {
                 schedule_position_save(window.app_handle(), *pos);
+            }
+            // La fenêtre se redimensionne selon le contenu : on la replace sur son ancrage.
+            WindowEvent::Resized(_) if window.label() == OVERLAY => {
+                apply_anchor(window.app_handle());
             }
             WindowEvent::CloseRequested { .. } if window.label() == "main" => {
                 // Détruit d'abord overlay et fenêtres de scraping pour que WebView2 libère
