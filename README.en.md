@@ -2,6 +2,13 @@
 
 [Français](README.md) · **English**
 
+> **Merged project: this repository is no longer updated.**
+> LobbyTracker and [RL Session Stats](https://github.com/NeyorDEV/rl-session-stats) have been merged into **[RL Tracker Suite](https://github.com/NeyorDEV/rl-tracker-suite)**, a single app with a *Session Stats* tab and a *LobbyTracker* tab.
+> This repository will not receive any further updates: development continues only in [RL Tracker Suite](https://github.com/NeyorDEV/rl-tracker-suite).
+>
+> - New project: [NeyorDEV/rl-tracker-suite](https://github.com/NeyorDEV/rl-tracker-suite)
+> - Original projects: [NeyorDEV/lobbytracker](https://github.com/NeyorDEV/lobbytracker) (this repository) and [NeyorDEV/rl-session-stats](https://github.com/NeyorDEV/rl-session-stats)
+
 **The passive pre-match radar for Rocket League.** Real rank, smurfs, 1v1 threats, players on a lose streak: know who you are facing before kickoff, without ever touching the game.
 
 Tauri v2 · Rust · SQLite · transparent overlay · OBS browser source
