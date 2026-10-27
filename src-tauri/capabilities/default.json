@@ -12,6 +12,7 @@
     "allow-get-snapshot",
     "allow-default-log-path",
     "allow-set-click-through",
-    "allow-toggle-overlay"
+    "allow-toggle-overlay",
+    "allow-set-preview"
   ]
 }

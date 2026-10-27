@@ -79,7 +79,7 @@
     <p style="color:var(--mute)">Source navigateur OBS : <code id="obs"></code> — les ports et chemins demandent un redémarrage.</p>
   </section>
 
-  <div class="actions"><button id="save">Enregistrer</button><button class="ghost" id="toggle">Afficher / masquer l'overlay</button><span id="msg"></span></div>
+  <div class="actions"><button id="save">Enregistrer</button><button class="ghost" id="toggle">Afficher / masquer l'overlay</button><button class="ghost" id="preview">Prévisualiser l'overlay</button><span id="msg"></span></div>
 
   <section style="margin-top:14px">
     <h2>Lobby en direct</h2>
@@ -120,6 +120,18 @@
     catch (e) { say(String(e), "err"); }
   };
   $("toggle").onclick = () => invoke("toggle_overlay");
+
+  let previewing = false;
+  function setPreviewUi(on) {
+    previewing = on;
+    $("preview").textContent = on ? "Arrêter la prévisualisation" : "Prévisualiser l'overlay";
+  }
+  $("preview").onclick = async () => {
+    await invoke("set_preview", { enabled: !previewing });
+    setPreviewUi(!previewing);
+    if (previewing) say("Aperçu pendant 20 s. Les cases décochées masquent leurs badges.", "");
+  };
+  listen("preview-ended", () => setPreviewUi(false));
 
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function renderPlayers(s) {

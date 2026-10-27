@@ -20,6 +20,7 @@ struct AppState {
     engine: Arc<Engine>,
     config_path: PathBuf,
     move_generation: AtomicU64,
+    preview_generation: AtomicU64,
 }
 
 /// Fenêtre WebView2 masquée, créée par requête et détruite juste après.
@@ -83,6 +84,27 @@ fn set_click_through(app: AppHandle, state: State<'_, AppState>, enabled: bool) 
 #[tauri::command]
 fn toggle_overlay(app: AppHandle) {
     toggle_overlay_visibility(&app);
+}
+
+/// Affiche un lobby fictif sur l'overlay (et OBS) pendant 20 s, ou l'arrête.
+#[tauri::command]
+fn set_preview(app: AppHandle, state: State<'_, AppState>, enabled: bool) {
+    let generation = state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    state.engine.set_preview(enabled);
+    if !enabled {
+        return;
+    }
+    if let Some(w) = app.get_webview_window(OVERLAY) {
+        let _ = w.show();
+    }
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(20)).await;
+        let state = app.state::<AppState>();
+        if state.preview_generation.load(Ordering::SeqCst) == generation {
+            state.engine.set_preview(false);
+            let _ = app.emit("preview-ended", ());
+        }
+    });
 }
 
 /// Seule commande exposée aux fenêtres masquées (`api.tracker.gg`).
@@ -178,6 +200,7 @@ pub fn run() {
             default_log_path,
             set_click_through,
             toggle_overlay,
+            set_preview,
             submit_scrape
         ])
         .on_window_event(|window, event| match event {
@@ -212,6 +235,7 @@ pub fn run() {
                 engine: engine.clone(),
                 config_path,
                 move_generation: AtomicU64::new(0),
+                preview_generation: AtomicU64::new(0),
             });
 
             if let Some(w) = app.get_webview_window(OVERLAY) {

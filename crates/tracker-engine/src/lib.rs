@@ -1,9 +1,11 @@
 //! Orchestration : watcher → parser → cache / file d'attente → heuristiques → snapshots.
 
+mod demo;
 pub mod lobby;
 
 use lobby::{Lobby, Upsert};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
@@ -59,6 +61,8 @@ struct Inner {
     parser: LogParser,
     /// Compte local lu dans `Launch.log` ; les champs de la config le surchargent.
     detected_self: Mutex<Option<(PlayerId, Option<String>)>>,
+    /// Affiche un lobby fictif à la place du vrai (bouton « Prévisualiser »).
+    preview: AtomicBool,
 }
 
 pub struct Engine {
@@ -90,6 +94,7 @@ impl Engine {
             webview,
             parser: LogParser::new(),
             detected_self: Mutex::new(None),
+            preview: AtomicBool::new(false),
         });
 
         let mut sources: Vec<Arc<dyn Fetcher>> = Vec::new();
@@ -123,6 +128,16 @@ impl Engine {
 
     pub fn config(&self) -> Config {
         self.inner.cfg.read().map(|c| c.clone()).unwrap_or_default()
+    }
+
+    /// Active ou coupe la prévisualisation de l'overlay avec un lobby fictif.
+    pub fn set_preview(&self, enabled: bool) {
+        self.inner.preview.store(enabled, Ordering::SeqCst);
+        self.inner.emit();
+    }
+
+    pub fn is_preview(&self) -> bool {
+        self.inner.preview.load(Ordering::SeqCst)
     }
 
     /// Applique une nouvelle configuration. Les filtres, jetons et options du scraper sont
@@ -351,6 +366,15 @@ impl Inner {
 
     fn build_snapshot(&self) -> LobbySnapshot {
         let cfg = self.cfg.read().unwrap().clone();
+        if self.preview.load(Ordering::SeqCst) {
+            let entries = demo::demo_entries();
+            return LobbySnapshot {
+                pending: 1,
+                players: tracker_heuristics::build_views(&entries, &cfg),
+                updated_at: unix_now(),
+                me: self.me_label(&cfg),
+            };
+        }
         let lobby = self.lobby.lock().unwrap();
         LobbySnapshot {
             players: tracker_heuristics::build_views(lobby.entries(), &cfg),
@@ -480,6 +504,27 @@ mod tests {
         e.inject_player(id(7), Some("neyor.".into()), Some(Team::Blue));
         assert!(e.snapshot().players.is_empty());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn preview_shows_demo_badges_respects_filters_and_restores_real_lobby() {
+        let mut cfg = Config::default();
+        let e = engine(cfg.clone());
+        e.inject_player(id(1), Some("Réel".into()), None);
+        e.set_preview(true);
+        let snap = e.snapshot();
+        assert!(snap.players.iter().any(|p| p.name == "BumpMachine"));
+        let all: Vec<_> = snap.players.iter().flat_map(|p| p.badge_labels.clone()).collect();
+        for l in ["Smurf suspect", "Spécialiste 1v1", "Démolisseur", "Ancre défensive", "En tilt", "Ancien haut rang"] {
+            assert!(all.iter().any(|x| x == l), "badge démo manquant : {l}");
+        }
+        cfg.filters.on_tilt = false;
+        e.update_config(cfg);
+        assert!(!e.snapshot().players.iter().any(|p| p.badge_labels.iter().any(|l| l == "En tilt")));
+        e.set_preview(false);
+        let real = e.snapshot();
+        assert_eq!(real.players.len(), 1);
+        assert_eq!(real.players[0].name, "Réel");
     }
 
     #[test]

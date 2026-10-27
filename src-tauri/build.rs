@@ -8,6 +8,7 @@ fn main() {
         "default_log_path",
         "set_click_through",
         "toggle_overlay",
+        "set_preview",
         "submit_scrape",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
