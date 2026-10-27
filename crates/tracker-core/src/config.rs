@@ -36,6 +36,21 @@ impl Default for Filters {
     }
 }
 
+/// Disposition de l'overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayLayout {
+    /// Lignes compactes empilées.
+    Column,
+    /// Bande horizontale de puces compactes.
+    Row,
+    /// Cartes empilées verticalement.
+    #[default]
+    CardVertical,
+    /// Cartes côte à côte.
+    CardHorizontal,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OverlayPosition {
     pub x: i32,
@@ -51,6 +66,12 @@ pub struct Config {
     /// Raccourci global activer/désactiver le click-through.
     pub click_through_hotkey: String,
     pub click_through: bool,
+    pub overlay_layout: OverlayLayout,
+    /// Échelle de l'overlay en pourcentage (50 à 200).
+    pub overlay_scale: u32,
+    /// Masque l'overlay quelques secondes après l'arrivée des joueurs d'un nouveau lobby.
+    pub auto_hide_enabled: bool,
+    pub auto_hide_seconds: u32,
     pub overlay_position: Option<OverlayPosition>,
     /// Jeton API officiel Tracker Network (fallback).
     pub trn_api_key: Option<String>,
@@ -79,6 +100,10 @@ impl Default for Config {
             overlay_hotkey: "F9".into(),
             click_through_hotkey: "Ctrl+Shift+C".into(),
             click_through: false,
+            overlay_layout: OverlayLayout::default(),
+            overlay_scale: 100,
+            auto_hide_enabled: false,
+            auto_hide_seconds: 30,
             overlay_position: None,
             trn_api_key: None,
             use_webview_scraper: true,
@@ -135,6 +160,14 @@ mod tests {
         assert!(!c.filters.on_tilt);
         assert!(c.filters.smurf_suspect);
         assert_eq!(c.overlay_hotkey, "F9");
+    }
+
+    #[test]
+    fn overlay_layout_roundtrips_as_snake_case() {
+        let c: Config = serde_json::from_str(r#"{"overlay_layout":"card_horizontal","overlay_scale":150}"#).unwrap();
+        assert_eq!(c.overlay_layout, OverlayLayout::CardHorizontal);
+        assert_eq!(c.overlay_scale, 150);
+        assert!(serde_json::to_string(&c).unwrap().contains("\"card_horizontal\""));
     }
 
     #[test]

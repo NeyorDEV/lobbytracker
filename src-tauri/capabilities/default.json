@@ -7,6 +7,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-set-size",
     "allow-get-config",
     "allow-save-config",
     "allow-get-snapshot",

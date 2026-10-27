@@ -6,6 +6,9 @@
 <style>
   html, body { margin: 0; background: transparent; overflow: hidden; user-select: none;
                font: 600 14px "Segoe UI", system-ui, sans-serif; color: #fff; }
+  #wrap { display: inline-block; width: max-content; }
+  #wrap.card_vertical { width: 360px; }
+  #wrap.column { width: 480px; }
   #bar { display: flex; align-items: center; gap: 8px; height: 22px; padding: 0 8px; cursor: move;
          background: rgba(12, 14, 20, .55); border-radius: 6px 6px 0 0; font-size: 11px; color: #9aa4b8; }
   #bar .title { flex: 1; letter-spacing: .08em; text-transform: uppercase; }
@@ -14,63 +17,119 @@
   @keyframes pulse { 50% { opacity: .3; } }
   #lock { display: none; }
   #lock.on { display: inline; color: #7bd88f; }
-  .card { margin-top: 4px; padding: 6px 10px; background: rgba(12, 14, 20, .82);
-          border-left: 4px solid #888; border-radius: 6px; }
-  .card.opponent { border-left-color: #ff7a2b; }
-  .card.teammate { border-left-color: #3b9dff; }
-  .row { display: flex; justify-content: space-between; gap: 8px; }
+
+  #list { display: flex; gap: 4px; margin-top: 4px; }
+  #list.card_vertical, #list.column { flex-direction: column; }
+  #list.card_horizontal, #list.row { flex-direction: row; align-items: flex-start; }
+
+  .card { padding: 6px 10px; background: rgba(12, 14, 20, .82); border-left: 4px solid #888; border-radius: 6px; }
+  #list.card_horizontal .card { width: 230px; flex: none; }
+  .chip { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: rgba(12, 14, 20, .82);
+          border-left: 4px solid #888; border-radius: 6px; white-space: nowrap; }
+  #list.row .chip { flex: none; }
+  .opponent { border-left-color: #ff7a2b; }
+  .teammate { border-left-color: #3b9dff; }
+
+  .row-top { display: flex; justify-content: space-between; gap: 8px; }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .name { max-width: 150px; }
+  .chip .grow { flex: 1; }
   .idx { color: #ffcf5c; font-size: 12px; }
-  .ranks, .loading { font-size: 12px; color: #c9d1e0; font-weight: 500; }
+  .ranks, .loading, .best { font-size: 12px; color: #c9d1e0; font-weight: 500; }
   .loading { color: #9aa4b8; font-weight: 400; }
   .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
-  .badge { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: #7b2cff; }
+  .chip .badges { margin: 0; flex-wrap: nowrap; }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: #7b2cff; white-space: nowrap; }
   .badge.smurf_suspect { background: #e03a3a; }
   .badge.on_tilt { background: #6b7280; }
   .badge.peak_disparity { background: #b7791f; }
   #empty { margin-top: 4px; padding: 8px 10px; font-size: 12px; font-weight: 400; color: #9aa4b8;
-           background: rgba(12, 14, 20, .6); border-radius: 6px; }
+           background: rgba(12, 14, 20, .6); border-radius: 6px; white-space: nowrap; }
 </style>
 </head>
 <body>
-<div id="bar" data-tauri-drag-region>
-  <span class="title" data-tauri-drag-region>LobbyTracker</span>
-  <span id="who"></span>
-  <span id="lock">verrouillé</span>
-  <span id="dot" title="Analyse en cours"></span>
+<div id="wrap" class="card_vertical">
+  <div id="bar" data-tauri-drag-region>
+    <span class="title" data-tauri-drag-region>LobbyTracker</span>
+    <span id="who"></span>
+    <span id="lock">verrouillé</span>
+    <span id="dot" title="Analyse en cours"></span>
+  </div>
+  <div id="list" class="card_vertical"></div>
 </div>
-<div id="list"></div>
 <script>
   const { listen } = window.__TAURI__.event;
   const { invoke } = window.__TAURI__.core;
-  const list = document.getElementById("list");
+  const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  function render(s) {
-    document.getElementById("who").textContent = s.me || "";
-    document.getElementById("dot").classList.toggle("on", s.pending > 0);
-    if (!s.players.length) {
-      list.innerHTML = '<div id="empty">En attente d\'un lobby…</div>';
-      return;
+  let layout = "card_vertical", scale = 100, lastSnapshot = { players: [], pending: 0 };
+
+  function badgesHtml(p) {
+    return p.badges.map((b, i) => '<span class="badge ' + b + '">' + esc(p.badge_labels[i]) + "</span>").join("");
+  }
+
+  function cardHtml(p) {
+    const idx = p.smurf_index >= 50 ? '<span class="idx">Smurf ' + p.smurf_index + "</span>" : "";
+    let body;
+    if (p.status === "loading") body = '<div class="loading">chargement…</div>';
+    else if (p.status === "failed") body = '<div class="loading">profil indisponible</div>';
+    else {
+      const ranks = p.ranks.map(r => r.label + " " + esc(r.tier_name)).join(" · ");
+      const badges = badgesHtml(p);
+      body = '<div class="ranks">' + ranks + "</div>" + (badges ? '<div class="badges">' + badges + "</div>" : "");
     }
-    list.innerHTML = s.players.map(p => {
-      const idx = p.smurf_index >= 50 ? '<span class="idx">Smurf ' + p.smurf_index + "</span>" : "";
-      let body;
-      if (p.status === "loading") body = '<div class="loading">chargement…</div>';
-      else if (p.status === "failed") body = '<div class="loading">profil indisponible</div>';
-      else {
-        const ranks = p.ranks.map(r => r.label + " " + esc(r.tier_name)).join(" · ");
-        const badges = p.badges.map((b, i) => '<span class="badge ' + b + '">' + esc(p.badge_labels[i]) + "</span>").join("");
-        body = '<div class="ranks">' + ranks + "</div>" + (badges ? '<div class="badges">' + badges + "</div>" : "");
-      }
-      return '<div class="card ' + p.relation + '"><div class="row"><span class="name">' + esc(p.name) + "</span>" + idx + "</div>" + body + "</div>";
-    }).join("");
+    return '<div class="card ' + p.relation + '"><div class="row-top"><span class="name">' + esc(p.name) + "</span>" + idx + "</div>" + body + "</div>";
+  }
+
+  function chipHtml(p) {
+    const idx = p.smurf_index >= 50 ? '<span class="idx">Smurf ' + p.smurf_index + "</span>" : "";
+    let mid;
+    if (p.status === "loading") mid = '<span class="loading">chargement…</span>';
+    else if (p.status === "failed") mid = '<span class="loading">indisponible</span>';
+    else mid = '<span class="best">' + esc(p.best_tier_name) + "</span>" + idx + '<span class="badges">' + badgesHtml(p) + "</span>";
+    return '<div class="chip ' + p.relation + '"><span class="name grow">' + esc(p.name) + "</span>" + mid + "</div>";
+  }
+
+  function render(s) {
+    lastSnapshot = s;
+    $("who").textContent = s.me || "";
+    $("dot").classList.toggle("on", s.pending > 0);
+    const compact = layout === "column" || layout === "row";
+    $("list").innerHTML = s.players.length
+      ? s.players.map(compact ? chipHtml : cardHtml).join("")
+      : '<div id="empty">En attente d\'un lobby…</div>';
+    fit();
+  }
+
+  function applyConfig(c) {
+    layout = c.overlay_layout || "card_vertical";
+    scale = Math.min(200, Math.max(50, c.overlay_scale || 100));
+    $("wrap").className = layout;
+    $("list").className = layout;
+    $("wrap").style.zoom = scale / 100;
+    $("lock").classList.toggle("on", !!c.click_through);
+    render(lastSnapshot);
+  }
+
+  // Ajuste la fenêtre à la taille réelle du contenu (disposition et échelle comprises).
+  let lastW = 0, lastH = 0;
+  function fit() {
+    requestAnimationFrame(() => {
+      const r = $("wrap").getBoundingClientRect();
+      const w = Math.max(160, Math.ceil(r.width) + 2), h = Math.max(30, Math.ceil(r.height) + 2);
+      if (w === lastW && h === lastH) return;
+      lastW = w; lastH = h;
+      const { getCurrentWindow, LogicalSize } = window.__TAURI__.window;
+      getCurrentWindow().setSize(new LogicalSize(w, h)).catch(() => {});
+    });
   }
 
   listen("lobby-snapshot", e => render(e.payload));
-  listen("click-through", e => document.getElementById("lock").classList.toggle("on", !!e.payload));
+  listen("config-changed", e => applyConfig(e.payload));
+  listen("click-through", e => $("lock").classList.toggle("on", !!e.payload));
+  invoke("get_config").then(applyConfig);
   invoke("get_snapshot").then(render);
-  invoke("get_config").then(c => document.getElementById("lock").classList.toggle("on", c.click_through));
 </script>
 </body>
 </html>

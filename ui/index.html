@@ -18,6 +18,7 @@
   .field label { display: block; color: var(--mute); font-size: 12px; margin-bottom: 3px; }
   input[type=text], input[type=password], input[type=number] {
     width: 100%; padding: 7px 9px; background: #0c0f14; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+  select { width: 100%; padding: 7px 9px; background: #0c0f14; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
   input[type=checkbox] { margin-top: 3px; accent-color: var(--accent); }
   button { background: var(--accent); color: #111; border: 0; font-weight: 700; padding: 9px 18px; border-radius: 7px; cursor: pointer; }
   button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
@@ -50,6 +51,18 @@
       <div class="field"><label>Raccourci afficher / masquer</label><input type="text" id="overlay_hotkey" placeholder="F9"></div>
       <div class="field"><label>Raccourci click-through</label><input type="text" id="click_through_hotkey" placeholder="Ctrl+Shift+C"></div>
     </div>
+    <div class="grid">
+      <div class="field"><label>Disposition</label>
+        <select id="overlay_layout">
+          <option value="card_vertical">Cartes verticales (empilées)</option>
+          <option value="card_horizontal">Cartes horizontales (côte à côte)</option>
+          <option value="column">Colonne (lignes compactes)</option>
+          <option value="row">Ligne (bande horizontale)</option>
+        </select></div>
+      <div class="field"><label>Taille</label><select id="overlay_scale"></select></div>
+    </div>
+    <label class="check"><input type="checkbox" id="auto_hide_enabled"><span>Masquer l'overlay après le début de la partie<small>Il s'affiche quand les joueurs du lobby arrivent, puis disparaît après le délai choisi.</small></span></label>
+    <div class="grid"><div class="field"><label>Durée d'affichage</label><select id="auto_hide_seconds"></select></div></div>
     <label class="check"><input type="checkbox" id="click_through"><span>Click-through (la souris traverse l'overlay)<small>Une fois actif, l'overlay ne peut plus être déplacé : utilisez le raccourci pour le désactiver.</small></span></label>
     <p style="color:var(--mute);margin:6px 0 0">Déplacez l'overlay par sa barre supérieure : la position est sauvegardée automatiquement.</p>
   </section>
@@ -73,8 +86,8 @@
       <div class="field"><label>Port Stats API</label><input type="number" id="stats_api_port"></div>
       <div class="field"><label>Port serveur local (OBS)</label><input type="number" id="server_port"></div>
       <div class="field"><label>Durée du cache (heures)</label><input type="number" id="cache_ttl_hours"></div>
-      <div class="field"><label>Smurf : victoires max</label><input type="number" id="smurf_max_wins"></div>
-      <div class="field"><label>Smurf : tier min (17 = Champion 2)</label><input type="number" id="smurf_min_tier"></div>
+      <div class="field"><label>Smurf : nombre de victoires maximum</label><input type="number" id="smurf_max_wins"></div>
+      <div class="field"><label>Smurf : rang minimum pour déclencher l'alerte</label><select id="smurf_min_tier"></select></div>
     </div>
     <p style="color:var(--mute)">Source navigateur OBS : <code id="obs"></code> — les ports et chemins demandent un redémarrage.</p>
   </section>
@@ -90,9 +103,18 @@
   const { invoke } = window.__TAURI__.core;
   const { listen } = window.__TAURI__.event;
   const $ = id => document.getElementById(id);
-  const TEXT = ["overlay_hotkey", "click_through_hotkey", "self_name", "self_id", "trn_api_key", "log_path"];
-  const BOOL = ["click_through", "use_webview_scraper", "stats_api_enabled"];
-  const NUM = ["stats_api_port", "server_port", "cache_ttl_hours", "smurf_max_wins", "smurf_min_tier"];
+  const TIERS = ["Non classé", "Bronze 1", "Bronze 2", "Bronze 3", "Argent 1", "Argent 2", "Argent 3", "Or 1", "Or 2", "Or 3",
+    "Platine 1", "Platine 2", "Platine 3", "Diamant 1", "Diamant 2", "Diamant 3", "Champion 1", "Champion 2", "Champion 3",
+    "Grand Champion 1", "Grand Champion 2", "Grand Champion 3", "Supersonic Legend"];
+  function options(id, items) {
+    $(id).innerHTML = items.map(([v, label]) => '<option value="' + v + '">' + label + "</option>").join("");
+  }
+  options("smurf_min_tier", TIERS.map((n, i) => [i, n]).slice(7));
+  options("overlay_scale", [50, 60, 70, 80, 90, 100, 110, 125, 150, 175, 200].map(v => [v, v + " %"]));
+  options("auto_hide_seconds", [10, 15, 20, 30, 45, 60, 90].map(v => [v, v + " secondes"]));
+  const TEXT = ["overlay_layout", "overlay_hotkey", "click_through_hotkey", "self_name", "self_id", "trn_api_key", "log_path"];
+  const BOOL = ["auto_hide_enabled", "click_through", "use_webview_scraper", "stats_api_enabled"];
+  const NUM = ["overlay_scale", "auto_hide_seconds", "stats_api_port", "server_port", "cache_ttl_hours", "smurf_max_wins", "smurf_min_tier"];
   let config;
 
   function say(text, cls) { const m = $("msg"); m.textContent = text; m.className = cls || ""; }

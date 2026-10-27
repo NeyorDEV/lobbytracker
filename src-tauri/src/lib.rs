@@ -21,6 +21,7 @@ struct AppState {
     config_path: PathBuf,
     move_generation: AtomicU64,
     preview_generation: AtomicU64,
+    autohide_generation: AtomicU64,
 }
 
 /// Fenêtre WebView2 masquée, créée par requête et détruite juste après.
@@ -62,6 +63,7 @@ fn get_config(state: State<'_, AppState>) -> Config {
 fn save_config(app: AppHandle, state: State<'_, AppState>, config: Config) -> Result<(), String> {
     config.save(&state.config_path).map_err(|e| e.to_string())?;
     state.engine.update_config(config.clone());
+    let _ = app.emit("config-changed", &config);
     apply_click_through(&app, config.click_through);
     register_shortcuts(&app, &config)
 }
@@ -166,6 +168,30 @@ fn register_shortcuts(app: &AppHandle, cfg: &Config) -> Result<(), String> {
     Ok(())
 }
 
+/// Un nouveau lobby vient de se remplir : montre l'overlay puis le masque après le délai choisi.
+fn on_new_lobby(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let cfg = state.engine.config();
+    if !cfg.auto_hide_enabled || state.engine.is_preview() {
+        return;
+    }
+    let generation = state.autohide_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    if let Some(w) = app.get_webview_window(OVERLAY) {
+        let _ = w.show();
+    }
+    let app = app.clone();
+    let delay = Duration::from_secs(u64::from(cfg.auto_hide_seconds.clamp(5, 600)));
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(delay).await;
+        let state = app.state::<AppState>();
+        if state.autohide_generation.load(Ordering::SeqCst) == generation && !state.engine.is_preview() {
+            if let Some(w) = app.get_webview_window(OVERLAY) {
+                let _ = w.hide();
+            }
+        }
+    });
+}
+
 /// Sauvegarde la position de l'overlay 600 ms après le dernier déplacement.
 fn schedule_position_save(app: &AppHandle, pos: PhysicalPosition<i32>) {
     let state = app.state::<AppState>();
@@ -236,6 +262,7 @@ pub fn run() {
                 config_path,
                 move_generation: AtomicU64::new(0),
                 preview_generation: AtomicU64::new(0),
+                autohide_generation: AtomicU64::new(0),
             });
 
             if let Some(w) = app.get_webview_window(OVERLAY) {
@@ -256,9 +283,15 @@ pub fn run() {
                     tracing::error!("démarrage du moteur : {e}");
                     let _ = handle.emit("engine-error", e.to_string());
                 }
+                let mut had_players = false;
                 loop {
                     match rx.recv().await {
                         Ok(snap) => {
+                            let has_players = !snap.players.is_empty();
+                            if has_players && !had_players {
+                                on_new_lobby(&handle);
+                            }
+                            had_players = has_players;
                             let _ = handle.emit("lobby-snapshot", snap);
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,

@@ -33,7 +33,7 @@ LobbyTracker n'interagit **jamais** avec le processus du jeu.
   | En tilt | ≥ 4 défaites consécutives |
   | Écart de rang historique | Pic ≥ Champion 2 et rang actuel ≥ 2 tiers sous le pic |
   | Adversaires uniquement | Masque les coéquipiers |
-- **Overlay Tauri** : transparent, sans bordure, toujours au-dessus, raccourcis globaux configurables (`F9` afficher/masquer, `Ctrl+Shift+C` click-through), déplacement libre avec position sauvegardée.
+- **Overlay Tauri** : transparent, sans bordure, toujours au-dessus, raccourcis globaux configurables (`F9` afficher/masquer, `Ctrl+Shift+C` click-through), déplacement libre avec position sauvegardée. Quatre dispositions (cartes verticales, cartes horizontales, colonne, ligne), taille de 50 à 200 %, et masquage automatique après N secondes à l'arrivée d'un lobby.
 - **OBS** : ajoutez une *Source Navigateur* sur `http://127.0.0.1:49124/obs` (fond transparent, mise à jour par WebSocket).
 - **Scraper hybride** : WebView2 invisible (passe Cloudflare comme un vrai navigateur) puis repli sur l'API officielle TRN avec votre jeton.
 
