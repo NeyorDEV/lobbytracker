@@ -110,4 +110,8 @@ Tests cover the parser (ID formats, false positives, Stats API), heuristics and 
 
 ## License
 
-MIT
+Released under the [MIT License](LICENSE): you may use, copy, modify and redistribute this code, including in commercial projects, as long as the copyright notice and the license text are kept. The software is provided "as is", without warranty.
+
+Copyright (c) 2026 [NeyorDEV](https://github.com/NeyorDEV)
+
+This project is now merged into [RL Tracker Suite](https://github.com/NeyorDEV/rl-tracker-suite), also released under the MIT License.
