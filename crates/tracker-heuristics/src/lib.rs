@@ -18,8 +18,9 @@ const DEMO_FLOOR: f32 = 0.7;
 const ANCHOR_SAVES: f32 = 1.6;
 const ANCHOR_SAVES_TO_GOALS: f32 = 2.5;
 const TILT_STREAK: u32 = 4;
-const PEAK_GAP: u32 = 3;
-const PEAK_MIN_TIER: u32 = 19;
+/// Dès un tier de moins que le pic, à condition que ce pic soit au moins Champion 2.
+const PEAK_GAP: u32 = 1;
+const PEAK_MIN_TIER: u32 = tracker_core::TIER_C2;
 
 #[derive(Debug, Clone)]
 pub enum EntryState {
@@ -345,6 +346,14 @@ mod tests {
         p.playlists = vec![pl(PlaylistKind::Standard, 16, 100)]; // C1
         assert!(badges(&p, &cfg).contains(&Badge::PeakDisparity));
         p.playlists = vec![pl(PlaylistKind::Standard, 19, 100)];
+        assert!(badges(&p, &cfg).contains(&Badge::PeakDisparity)); // GC2 -> C3 : un tier suffit
+        p.playlists = vec![pl(PlaylistKind::Standard, 20, 100)];
+        assert!(!badges(&p, &cfg).contains(&Badge::PeakDisparity)); // au pic
+        p.peak_tier = Some(17); // pic C2
+        p.playlists = vec![pl(PlaylistKind::Standard, 16, 100)];
+        assert!(badges(&p, &cfg).contains(&Badge::PeakDisparity));
+        p.peak_tier = Some(16); // pic C1 : sous le seuil C2
+        p.playlists = vec![pl(PlaylistKind::Standard, 15, 100)];
         assert!(!badges(&p, &cfg).contains(&Badge::PeakDisparity));
     }
 
