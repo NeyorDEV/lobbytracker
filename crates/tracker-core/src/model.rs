@@ -209,6 +209,25 @@ pub struct PlaylistStat {
     pub matches: u32,
 }
 
+/// Résultats classés récents d'un joueur (historique de sessions Tracker Network).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecentForm {
+    pub matches: u32,
+    pub wins: u32,
+    /// Variation de MMR cumulée sur ces matchs (négative en cas de baisse).
+    pub mmr_gain: i32,
+}
+
+impl RecentForm {
+    pub fn win_rate(&self) -> f32 {
+        if self.matches == 0 {
+            0.0
+        } else {
+            self.wins as f32 / self.matches as f32
+        }
+    }
+}
+
 /// Profil public agrégé d'un joueur (source : Tracker Network).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlayerProfile {
@@ -217,12 +236,13 @@ pub struct PlayerProfile {
     pub total_wins: u32,
     pub peak_tier: Option<u32>,
     pub playlists: Vec<PlaylistStat>,
-    pub demos_per_match: Option<f32>,
     pub saves_per_match: Option<f32>,
     pub goals_per_match: Option<f32>,
     pub shots_per_match: Option<f32>,
     /// Défaites consécutives les plus récentes de la session (0 si inconnu).
     pub loss_streak: u32,
+    /// Forme récente en classé ; `None` si l'historique n'a pas été récupéré.
+    pub recent: Option<RecentForm>,
     pub fetched_at: i64,
 }
 

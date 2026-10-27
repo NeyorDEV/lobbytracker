@@ -5,8 +5,11 @@ pub mod config;
 pub mod model;
 pub mod view;
 
-pub use config::{Config, ConfigError, Filters, OverlayAnchor, OverlayLayout, OverlayPosition};
-pub use model::{
+pub use config::{
+    AutoHideMode, Config, ConfigError, Filters, OverlayAnchor, OverlayColors, OverlayLayout, OverlayPosition,
+    DEFAULT_SERVER_PORT,
+};
+pub use model::{ RecentForm,
     tier_name, PlayerId, PlayerProfile, Platform, PlaylistKind, PlaylistStat, Relation, Team,
     TIER_C2,
 };

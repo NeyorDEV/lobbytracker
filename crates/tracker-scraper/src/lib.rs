@@ -16,6 +16,8 @@ pub enum ScrapeError {
     Blocked,
     #[error("profil introuvable ou privé")]
     NotFound,
+    #[error("pseudo du joueur inconnu : Tracker Network cherche ce compte par son pseudo")]
+    NameRequired,
     #[error("limite de requêtes atteinte (429)")]
     RateLimited,
     #[error("erreur réseau : {0}")]

@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
@@ -18,6 +18,7 @@
   .field label { display: block; color: var(--mute); font-size: 12px; margin-bottom: 3px; }
   input[type=text], input[type=password], input[type=number] {
     width: 100%; padding: 7px 9px; background: #0c0f14; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+  select:disabled { opacity: .45; cursor: not-allowed; }
   select { width: 100%; padding: 7px 9px; background: #0c0f14; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
   .posgrid { display: grid; grid-template-columns: 240px 1fr; gap: 28px; }
   @media (max-width: 640px) { .posgrid { grid-template-columns: 1fr; } }
@@ -39,6 +40,30 @@
   .slider .row label { color: var(--mute); }
   .slider .row b { color: var(--accent); }
   input[type=range] { width: 100%; accent-color: var(--accent); }
+  .layouts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .layouts { grid-template-columns: 1fr; } }
+  button.lay { text-align: left; background: #0c0f14; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  button.lay b { display: block; font-size: 14px; margin-bottom: 3px; }
+  button.lay small { display: block; color: var(--mute); font-weight: 400; font-size: 12px; }
+  button.lay:hover { border-color: #3b476b; }
+  button.lay.on { border-color: var(--accent); background: #1a1410; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #6b7488; margin-right: 8px; }
+  .dot.on { background: #46d18a; } .dot.off { background: #e5604d; }
+  .sapi-state { margin: 0; font-weight: 600; }
+  .sapi-card { background: #0c0f14; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .sapi-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .sapi-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .sapi-row:first-child { border-top: 0; }
+  .sapi-row code { background: none; padding: 0; color: var(--mute); word-break: break-all; }
+  .pill { font-size: 10px; font-weight: 700; letter-spacing: .05em; padding: 3px 8px; border-radius: 5px; background: #2a3350; color: #9aa4b8; white-space: nowrap; }
+  .pill.ok { background: #14301f; color: #46d18a; } .pill.todo { background: #3a2a14; color: var(--accent); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { background: #0c0f14; color: var(--mute); border: 0; border-radius: 0; padding: 9px 16px; font-weight: 600; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--accent); color: #111; }
+  .colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 16px; }
+  .colors label { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--mute); }
+  .colors input[type=color] { width: 44px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; }
   .hint { margin: 0; color: var(--mute); font-size: 12px; }
   .margins + .hint { margin-top: 12px; }
   input[type=checkbox] { margin-top: 3px; accent-color: var(--accent); }
@@ -54,16 +79,15 @@
 <body>
 <main>
   <h1>Lobby<span>Tracker</span></h1>
-  <p class="sub">Radar d'avant-match passif — aucune injection, aucun hook, lecture seule de <code>Launch.log</code>.</p>
+  <div id="warn" style="display:none;margin:0 0 14px;padding:10px 14px;border-radius:8px;background:#3a1f1f;border:1px solid #6b2b2b;color:#ffb3b3"></div>
 
   <section>
     <h2>Badges et alertes</h2>
-    <label class="check"><input type="checkbox" data-f="smurf_suspect"><span>Alerte smurf suspect<small>Compte à peu de victoires totales à haut rang (Champion 2+).</small></span></label>
-    <label class="check"><input type="checkbox" data-f="one_v_one_specialist"><span>Spécialiste 1v1 / menace mécanique<small>Rang 1v1 anormalement élevé par rapport au lobby.</small></span></label>
-    <label class="check"><input type="checkbox" data-f="demolisher"><span>Démolisseur / physical player<small>Ratio de démolitions par match nettement supérieur à la moyenne.</small></span></label>
-    <label class="check"><input type="checkbox" data-f="defensive_anchor"><span>Ancre défensive / 3rd man<small>Beaucoup d'arrêts, peu de buts.</small></span></label>
-    <label class="check"><input type="checkbox" data-f="on_tilt"><span>En tilt / série noire<small>4 défaites consécutives ou plus (requête supplémentaire par joueur).</small></span></label>
-    <label class="check"><input type="checkbox" data-f="peak_disparity"><span>Écart de rang historique<small>A déjà atteint Champion 2 ou plus, et son rang actuel est au moins 2 tiers en dessous.</small></span></label>
+    <label class="check"><input type="checkbox" data-f="smurf_suspect"><span>Potentiel smurf<small>Compte à peu de victoires totales à haut rang (Champion 2+).</small></span></label>
+    <label class="check"><input type="checkbox" data-f="one_v_one_specialist"><span>Joueur 1v1<small>Rang 1v1 anormalement élevé par rapport au lobby.</small></span></label>
+    <label class="check"><input type="checkbox" data-f="defensive_anchor"><span>Gardien<small>Beaucoup d'arrêts, peu de buts.</small></span></label>
+    <label class="check"><input type="checkbox" data-f="on_tilt"><span>Lose streak<small>Affiche le nombre de défaites consécutives, à partir de 3 (requête supplémentaire par joueur).</small></span></label>
+    <label class="check"><input type="checkbox" data-f="peak_disparity"><span>Ancien haut rang<small>A déjà atteint Champion 2 ou plus, et son rang actuel est au moins 2 tiers en dessous.</small></span></label>
     <label class="check"><input type="checkbox" data-f="only_opponents"><span>Afficher uniquement les adversaires<small>Masque le profilage des coéquipiers.</small></span></label>
   </section>
 
@@ -74,15 +98,20 @@
       <div class="field"><label>Raccourci click-through</label><input type="text" id="click_through_hotkey" placeholder="Ctrl+Shift+C"></div>
     </div>
     <div class="grid">
-      <div class="field"><label>Disposition</label>
-        <select id="overlay_layout">
-          <option value="card_vertical">Cartes verticales (empilées)</option>
-          <option value="card_horizontal">Cartes horizontales (côte à côte)</option>
-          <option value="column">Colonne (lignes compactes)</option>
-          <option value="row">Ligne (bande horizontale)</option>
-        </select></div>
+      <div class="field" style="grid-column:1/-1"><label>Thème visuel de l'overlay</label>
+        <input type="hidden" id="overlay_layout">
+        <div class="layouts">
+          <button type="button" class="lay" data-layout="card_horizontal"><b>Carte horizontale</b><small>Cartes côte à côte avec bandeau translucide</small></button>
+          <button type="button" class="lay" data-layout="column"><b>Colonne</b><small>Lignes compactes avec séparateurs fins</small></button>
+          <button type="button" class="lay" data-layout="card_vertical"><b>Carte verticale</b><small>Cartes empilées, détail complet par joueur</small></button>
+          <button type="button" class="lay" data-layout="row"><b>Ligne</b><small>Bande horizontale discrète, une ligne par lobby</small></button>
+        </div>
+      </div>
     </div>
-    <label class="check"><input type="checkbox" id="auto_hide_enabled"><span>Masquer l'overlay après le début de la partie<small>Il s'affiche quand les joueurs du lobby arrivent, puis disparaît après le délai choisi.</small></span></label>
+    <div class="sub2" style="margin-top:12px">Masquage automatique</div>
+    <label class="check"><input type="radio" name="auto_hide_mode" value="off"><span>Ne pas masquer<small>L'overlay reste affiché.</small></span></label>
+    <label class="check"><input type="radio" name="auto_hide_mode" value="kickoff"><span>À la fin du décompte 3-2-1<small>L'overlay s'affiche quand les joueurs arrivent et disparaît au coup d'envoi (nécessite la Stats API).</small></span></label>
+    <label class="check"><input type="radio" name="auto_hide_mode" value="timer"><span>Après un délai<small>Il disparaît après la durée choisie.</small></span></label>
     <div class="grid"><div class="field"><label>Durée d'affichage</label><select id="auto_hide_seconds"></select></div></div>
     <label class="check"><input type="checkbox" id="click_through"><span>Click-through (la souris traverse l'overlay)<small>Une fois actif, l'overlay ne peut plus être déplacé : utilisez le raccourci pour le désactiver.</small></span></label>
   </section>
@@ -112,22 +141,52 @@
           <input type="range" id="overlay_scale" min="50" max="200" step="5"></div>
         <div class="slider"><div class="row"><label>Opacité du fond</label><b id="overlay_opacity_v"></b></div>
           <input type="range" id="overlay_opacity" min="10" max="100" step="5"></div>
+        <button type="button" class="ghost" id="preview" style="align-self:flex-start">Prévisualiser l'overlay</button>
         <p class="hint">Les changements de cette section s'appliquent tout de suite à l'overlay.</p>
       </div>
     </div>
   </section>
 
   <section>
+    <h2>Couleurs de l'overlay</h2>
+    <div class="colors" id="colors"></div>
+    <div class="actions" style="margin-top:12px"><button type="button" class="ghost" id="colors_reset">Réinitialiser les couleurs</button></div>
+    <p class="hint" style="margin-top:10px">Les couleurs s'appliquent tout de suite à l'overlay (pas à la source OBS). L'opacité du fond se règle plus haut.</p>
+  </section>
+
+  <section>
     <h2>Joueur et sources</h2>
-    <p style="margin:0 0 10px">Compte détecté : <strong id="me">en attente de Rocket League…</strong></p>
+    <p style="margin:0 0 10px">Compte détecté : <strong id="me">en attente du lancement de Rocket League…</strong></p>
+    <p class="hint" style="margin-bottom:10px">Votre compte et la plateforme (Epic, Steam…) sont détectés automatiquement à chaque lancement de Rocket League.</p>
     <div class="grid">
-      <div class="field"><label>Votre pseudo (laisser vide = détection automatique)</label><input type="text" id="self_name" placeholder="auto"></div>
-      <div class="field"><label>Votre identifiant (vide = automatique)</label><input type="text" id="self_id" placeholder="auto"></div>
-      <div class="field"><label>Jeton API Tracker Network (repli)</label><input type="password" id="trn_api_key" placeholder="optionnel"></div>
-      <div class="field"><label>Chemin de Launch.log (vide = automatique)</label><input type="text" id="log_path"></div>
+      <div class="field"><label>Jeton API Tracker Network (optionnel, sert de repli)</label><input type="password" id="trn_api_key" placeholder="optionnel"></div>
     </div>
     <label class="check"><input type="checkbox" id="use_webview_scraper"><span>Scraper WebView2 invisible (contourne Cloudflare)</span></label>
-    <label class="check"><input type="checkbox" id="stats_api_enabled"><span>Écouter la Stats API locale (équipes en direct)<small>Nécessite <code>PacketSendRate</code> &gt; 0 dans <code>DefaultStatsAPI.ini</code> du jeu.</small></span></label>
+    <label class="check"><input type="checkbox" id="stats_api_enabled"><span>Écouter la Stats API locale (équipes en direct)<small>Le réglage du jeu se fait dans la section ci-dessous.</small></span></label>
+  </section>
+
+  <section>
+    <h2>Stats API de Rocket League</h2>
+    <p class="sapi-state"><span class="dot" id="sapi_dot"></span><span id="sapi_state">Vérification…</span></p>
+    <div class="sub2" style="margin-top:14px">Détection automatique</div>
+    <div class="sapi-card">
+      <div class="sapi-head"><span><span class="dot" id="sapi_run_dot"></span><b id="sapi_run">En attente du lancement de Rocket League…</b></span><span class="pill ok">AUTO-ADAPTATIF</span></div>
+      <p class="hint" style="margin:8px 0 10px">L'overlay détecte automatiquement si vous lancez Rocket League depuis Epic Games ou Steam.</p>
+      <div class="sapi-list" id="sapi_list"></div>
+    </div>
+    <div class="actions" style="margin-top:12px">
+      <button type="button" class="ghost" id="sapi_refresh">Rafraîchir la détection</button>
+      <button type="button" class="ghost" id="sapi_pick">Choisir un autre dossier…</button>
+    </div>
+    <div class="sub2" style="margin-top:16px">Fréquence d'envoi</div>
+    <div class="seg" id="sapi_rates">
+      <button type="button" data-rate="10">10 / s (recommandé)</button>
+      <button type="button" data-rate="30">30 / s</button>
+      <button type="button" data-rate="60">60 / s</button>
+    </div>
+    <p class="hint" style="margin:8px 0 12px">10 suffit pour repérer les joueurs et le coup d'envoi ; plus la fréquence est haute, plus le jeu envoie de messages à LobbyTracker.</p>
+    <button type="button" id="sapi_apply">Réappliquer le réglage</button>
+    <p class="hint" style="margin-top:10px">Cette action modifie uniquement <code>DefaultStatsAPI.ini</code> (une copie <code>.lobbytracker.bak</code> est gardée). Relancez Rocket League pour que le changement soit pris en compte ; ensuite, LobbyTracker remet le réglage tout seul si une mise à jour du jeu l'efface.</p>
   </section>
 
   <section>
@@ -142,7 +201,11 @@
     <p style="color:var(--mute)">Source navigateur OBS : <code id="obs"></code> — les ports et chemins demandent un redémarrage.</p>
   </section>
 
-  <div class="actions"><button id="save">Enregistrer</button><button class="ghost" id="toggle">Afficher / masquer l'overlay</button><button class="ghost" id="preview">Prévisualiser l'overlay</button><span id="msg"></span></div>
+  <div id="update" style="display:none;margin:14px 0 0;padding:10px 14px;border-radius:8px;background:#1a1410;border:1px solid var(--accent)">
+    <span id="update_text"></span> <button id="update_install" style="margin-left:10px">Installer et redémarrer</button>
+  </div>
+  <div class="actions" style="margin-top:14px"><button id="save">Enregistrer</button><button class="ghost" id="toggle">Afficher / masquer l'overlay</button><span id="msg"></span></div>
+  <p class="hint" style="margin-top:14px">Version <span id="version">…</span> · <a href="#" id="check_update" style="color:var(--accent)">Rechercher une mise à jour</a></p>
 
   <section style="margin-top:14px">
     <h2>Lobby en direct</h2>
@@ -159,10 +222,10 @@
   function options(id, items) {
     $(id).innerHTML = items.map(([v, label]) => '<option value="' + v + '">' + label + "</option>").join("");
   }
-  options("smurf_min_tier", TIERS.map((n, i) => [i, n]).slice(7));
+  options("smurf_min_tier", TIERS.map((n, i) => [i, n]).slice(1));
   options("auto_hide_seconds", [10, 15, 20, 30, 45, 60, 90].map(v => [v, v + " secondes"]));
-  const TEXT = ["overlay_layout", "overlay_hotkey", "click_through_hotkey", "self_name", "self_id", "trn_api_key", "log_path"];
-  const BOOL = ["auto_hide_enabled", "click_through", "use_webview_scraper", "stats_api_enabled"];
+  const TEXT = ["overlay_layout", "overlay_hotkey", "click_through_hotkey", "trn_api_key"];
+  const BOOL = ["click_through", "use_webview_scraper", "stats_api_enabled"];
   const NUM = ["overlay_scale", "overlay_opacity", "overlay_margin_x", "overlay_margin_y", "auto_hide_seconds", "stats_api_port", "server_port", "cache_ttl_hours", "smurf_max_wins", "smurf_min_tier"];
   let config;
 
@@ -175,6 +238,11 @@
     BOOL.forEach(k => $(k).checked = !!c[k]);
     NUM.forEach(k => $(k).value = c[k]);
     setAnchor(c.overlay_anchor || "free");
+    const mode = document.querySelector('input[name="auto_hide_mode"][value="' + (c.auto_hide_mode || "off") + '"]');
+    if (mode) mode.checked = true;
+    syncAutoHide();
+    setLayout(c.overlay_layout || "card_vertical");
+    fillColors(c.overlay_colors);
     updateSliderLabels();
     $("obs").textContent = "http://127.0.0.1:" + c.server_port + "/obs";
   }
@@ -186,6 +254,8 @@
     BOOL.forEach(k => c[k] = $(k).checked);
     NUM.forEach(k => c[k] = Number($(k).value));
     c.overlay_anchor = anchor;
+    c.auto_hide_mode = autoHideMode();
+    c.overlay_colors = collectColors();
     return c;
   }
 
@@ -203,6 +273,31 @@
     $("overlay_margin_y").disabled = free;
     $("freehint").style.display = free ? "" : "none";
   }
+  // La durée n'a de sens que si le masquage automatique est activé.
+  function syncAutoHide() {
+    $("auto_hide_seconds").disabled = autoHideMode() !== "timer";
+  }
+  const autoHideMode = () => document.querySelector('input[name="auto_hide_mode"]:checked')?.value || "off";
+  document.querySelectorAll('input[name="auto_hide_mode"]').forEach(r => r.addEventListener("change", syncAutoHide));
+  // Couleurs de l'overlay (mêmes valeurs par défaut que la configuration Rust).
+  const COLOR_FIELDS = [
+    ["background", "Fond", "#0c0e14"], ["text", "Texte", "#ffffff"], ["muted", "Texte secondaire", "#9aa4b8"],
+    ["opponent", "Adversaire", "#ff7a2b"], ["teammate", "Coéquipier", "#3b9dff"], ["unknown", "Équipe inconnue", "#888888"],
+    ["badge_smurf", "Badge potentiel smurf", "#e03a3a"], ["badge_one_v_one", "Badge joueur 1v1", "#7b2cff"],
+    ["badge_anchor", "Badge gardien", "#7b2cff"], ["badge_tilt", "Badge lose streak", "#6b7280"],
+    ["badge_peak", "Badge ancien haut rang", "#b7791f"],
+  ];
+  $("colors").innerHTML = COLOR_FIELDS.map(([k, label, d]) =>
+    '<label>' + label + '<input type="color" id="col_' + k + '" value="' + d + '"></label>').join("");
+  const collectColors = () => Object.fromEntries(COLOR_FIELDS.map(([k]) => [k, $("col_" + k).value]));
+  function fillColors(colors) { COLOR_FIELDS.forEach(([k, , d]) => $("col_" + k).value = (colors || {})[k] || d); }
+  COLOR_FIELDS.forEach(([k]) => $("col_" + k).addEventListener("input", () => applyPositionLive()));
+  $("colors_reset").onclick = () => { COLOR_FIELDS.forEach(([k, , d]) => $("col_" + k).value = d); applyPositionLive(); };
+
+  function setLayout(l) {
+    $("overlay_layout").value = l;
+    document.querySelectorAll("[data-layout]").forEach(el => el.classList.toggle("on", el.dataset.layout === l));
+  }
   function updateSliderLabels() {
     $("overlay_scale_v").textContent = $("overlay_scale").value + " %";
     $("overlay_opacity_v").textContent = $("overlay_opacity").value + " %";
@@ -214,11 +309,20 @@
       const c = structuredClone(config);
       ["overlay_scale", "overlay_opacity", "overlay_margin_x", "overlay_margin_y"].forEach(k => c[k] = Number($(k).value));
       c.overlay_anchor = anchor;
+      c.overlay_layout = $("overlay_layout").value;
+      c.overlay_colors = collectColors();
+      // Le glisser-déposer est impossible en click-through : on le coupe en position libre.
+      if (anchor === "free" && c.click_through) {
+        c.click_through = false;
+        $("click_through").checked = false;
+        say("Click-through désactivé pour pouvoir déplacer l'overlay.", "ok");
+      }
       try { await invoke("save_config", { config: c }); config = await invoke("get_config"); }
       catch (e) { say(String(e), "err"); }
     }, 200);
   }
   document.querySelectorAll("[data-anchor]").forEach(el => el.onclick = () => { setAnchor(el.dataset.anchor); applyPositionLive(); });
+  document.querySelectorAll("[data-layout]").forEach(el => el.onclick = () => { setLayout(el.dataset.layout); applyPositionLive(); });
   ["overlay_scale", "overlay_opacity", "overlay_margin_x", "overlay_margin_y"].forEach(k =>
     $(k).addEventListener("input", () => { updateSliderLabels(); applyPositionLive(); }));
 
@@ -236,9 +340,75 @@
   };
   listen("preview-ended", () => setPreviewUi(false));
 
+  // --- Stats API de Rocket League : détection des installations et réglage de PacketSendRate.
+  let sapiRate = 10;
+  function setSapiRate(r) {
+    sapiRate = r;
+    document.querySelectorAll("#sapi_rates [data-rate]").forEach(b => b.classList.toggle("on", Number(b.dataset.rate) === r));
+  }
+  const LAUNCHERS = { epic: "Epic Games", steam: "Steam", custom: "Dossier choisi" };
+  function renderSapi(s) {
+    $("sapi_dot").className = "dot " + (s.active_rate > 0 ? "on" : "off");
+    $("sapi_state").textContent = s.active_rate > 0 ? "Activée (" + s.active_rate + " envois par seconde)" : "Désactivée : cliquez sur « Réappliquer le réglage »";
+    const running = s.running ? (LAUNCHERS[s.running] || s.running) : null;
+    $("sapi_run_dot").className = "dot " + (running ? "on" : "");
+    $("sapi_run").textContent = running ? "Rocket League lancé (" + running + ")" : "En attente du lancement de Rocket League…";
+    const rows = ["epic", "steam"].map(l => {
+      const i = s.installs.find(x => x.launcher === l);
+      return row(LAUNCHERS[l], i ? i.root : "Non détecté sur cette machine", i);
+    });
+    s.installs.filter(i => i.launcher === "custom").forEach(i => rows.push(row(LAUNCHERS.custom, i.root, i)));
+    $("sapi_list").innerHTML = rows.join("");
+    setSapiRate(s.configured_rate);
+  }
+  function row(name, path, i) {
+    const pill = !i ? '<span class="pill">NON DÉTECTÉ</span>'
+      : (i.rate || 0) > 0 ? '<span class="pill ok">PRÊT</span>' : '<span class="pill todo">À ACTIVER</span>';
+    return '<div class="sapi-row"><span><b>' + esc(name) + " :</b> <code>" + esc(path) + "</code></span>" + pill + "</div>";
+  }
+  async function refreshSapi() {
+    try { renderSapi(await invoke("statsapi_status")); } catch (e) { say(String(e), "err"); }
+  }
+  async function sapiCall(cmd, args) {
+    try {
+      const s = await invoke(cmd, args);
+      config = await invoke("get_config"); // la commande a modifié la configuration côté Rust
+      if (s) renderSapi(s);
+      return s;
+    } catch (e) { say(String(e), "err"); }
+  }
+  document.querySelectorAll("#sapi_rates [data-rate]").forEach(b => b.onclick = () => setSapiRate(Number(b.dataset.rate)));
+  $("sapi_refresh").onclick = refreshSapi;
+  $("sapi_pick").onclick = () => sapiCall("statsapi_pick_dir");
+  $("sapi_apply").onclick = async () => {
+    const s = await sapiCall("statsapi_apply", { rate: sapiRate });
+    if (s) say("Réglage appliqué : relancez Rocket League pour qu'il soit pris en compte.", "ok");
+  };
+  listen("lobby-snapshot", refreshSapi);
+  refreshSapi();
+
+  // --- Mises à jour (GitHub Releases, signature vérifiée avant installation).
+  async function checkUpdate(manual) {
+    if (manual) say("Recherche de mises à jour…", "");
+    try {
+      const u = await invoke("check_update");
+      $("update").style.display = u ? "" : "none";
+      if (u) { $("update_text").textContent = "Version " + u.version + " disponible."; if (manual) say("", ""); }
+      else if (manual) say("Vous avez la dernière version.", "ok");
+    } catch (e) { if (manual) say("Mise à jour impossible : " + e, "err"); }
+  }
+  $("check_update").onclick = ev => { ev.preventDefault(); checkUpdate(true); };
+  $("update_install").onclick = async () => {
+    $("update_install").disabled = true;
+    say("Téléchargement de la mise à jour…", "");
+    try { await invoke("install_update"); } catch (e) { say("Mise à jour impossible : " + e, "err"); $("update_install").disabled = false; }
+  };
+  window.__TAURI__.app.getVersion().then(v => $("version").textContent = v);
+  checkUpdate(false);
+
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function renderPlayers(s) {
-    $("me").textContent = s.me || "en attente de Rocket League…";
+    $("me").textContent = s.me || "en attente du lancement de Rocket League…";
     if (!s.players.length) { $("players").innerHTML = '<span style="color:var(--mute)">En attente d\'un lobby…</span>'; return; }
     $("players").innerHTML = s.players.map(p =>
       '<div class="pl"><span>' + esc(p.name) + ' <small style="color:var(--mute)">' + p.relation + "</small></span><span>"
@@ -247,7 +417,9 @@
   }
 
   listen("lobby-snapshot", e => renderPlayers(e.payload));
-  listen("engine-error", e => say("Moteur : " + e.payload, "err"));
+  listen("engine-error", e => { const w = $("warn"); w.style.display = ""; w.textContent = e.payload; });
+  // Le moteur démarre en même temps que la fenêtre : on rafraîchit jusqu'à la détection du compte.
+  setInterval(() => invoke("get_snapshot").then(renderPlayers), 2000);
   invoke("get_config").then(fill);
   invoke("get_snapshot").then(renderPlayers);
 </script>

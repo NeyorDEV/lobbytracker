@@ -9,6 +9,7 @@ members = [
     "crates/tracker-scraper",
     "crates/tracker-server",
     "crates/tracker-engine",
+    "crates/tracker-gamecfg",
     "src-tauri",
 ]
 
@@ -40,6 +41,7 @@ tracker-watcher = { path = "crates/tracker-watcher" }
 tracker-scraper = { path = "crates/tracker-scraper" }
 tracker-server = { path = "crates/tracker-server" }
 tracker-engine = { path = "crates/tracker-engine" }
+tracker-gamecfg = { path = "crates/tracker-gamecfg" }
 
 [profile.release]
 lto = "thin"

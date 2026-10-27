@@ -5,10 +5,32 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracker_core::{PlayerId, PlayerProfile};
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FetchOptions {
-    /// Récupère aussi l'historique de session pour la série de défaites (requête en plus).
+    /// Récupère aussi l'historique de session : série de défaites et forme récente (requête en plus).
     pub with_sessions: bool,
+    /// Pseudo du joueur : Tracker Network identifie les comptes Epic, Xbox et PSN par pseudo
+    /// (seul Steam accepte l'identifiant numérique).
+    pub lookup: Option<String>,
+}
+
+/// Segment d'URL identifiant le joueur chez Tracker Network, encodé pour une URL.
+pub fn profile_handle(id: &PlayerId, lookup: Option<&str>) -> Result<String, ScrapeError> {
+    use tracker_core::Platform;
+    let raw = match id.platform {
+        Platform::Steam => id.id.as_str(),
+        _ => lookup.map(str::trim).filter(|n| !n.is_empty()).ok_or(ScrapeError::NameRequired)?,
+    };
+    Ok(percent_encode(raw))
+}
+
+fn percent_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 #[async_trait]
@@ -20,8 +42,8 @@ pub trait Fetcher: Send + Sync {
 #[async_trait]
 pub trait JsonSource: Send + Sync {
     fn name(&self) -> &'static str;
-    fn profile_url(&self, id: &PlayerId) -> String;
-    fn sessions_url(&self, id: &PlayerId) -> String;
+    fn profile_url(&self, id: &PlayerId, handle: &str) -> String;
+    fn sessions_url(&self, id: &PlayerId, handle: &str) -> String;
     async fn get_json(&self, url: &str) -> Result<Value, ScrapeError>;
 }
 
@@ -39,12 +61,16 @@ impl<S: JsonSource> SourceFetcher<S> {
 #[async_trait]
 impl<S: JsonSource> Fetcher for SourceFetcher<S> {
     async fn fetch(&self, id: &PlayerId, opts: FetchOptions) -> Result<PlayerProfile, ScrapeError> {
-        let json = self.source.get_json(&self.source.profile_url(id)).await?;
+        let handle = profile_handle(id, opts.lookup.as_deref())?;
+        let json = self.source.get_json(&self.source.profile_url(id, &handle)).await?;
         let mut profile = mapping::parse_profile(&json, id)?;
         if opts.with_sessions {
             // Meilleur effort : l'absence d'historique ne doit pas faire échouer le profil.
-            match self.source.get_json(&self.source.sessions_url(id)).await {
-                Ok(s) => profile.loss_streak = mapping::parse_loss_streak(&s),
+            match self.source.get_json(&self.source.sessions_url(id, &handle)).await {
+                Ok(s) => {
+                    profile.loss_streak = mapping::parse_loss_streak(&s);
+                    profile.recent = mapping::parse_recent_form(&s);
+                }
                 Err(e) => tracing::debug!("{} : sessions indisponibles ({e})", self.source.name()),
             }
         }
@@ -68,7 +94,7 @@ impl Fetcher for HybridFetcher {
     async fn fetch(&self, id: &PlayerId, opts: FetchOptions) -> Result<PlayerProfile, ScrapeError> {
         let mut last = ScrapeError::NoSource;
         for f in &self.fetchers {
-            match f.fetch(id, opts).await {
+            match f.fetch(id, opts.clone()).await {
                 Ok(p) => return Ok(p),
                 Err(e) => {
                     tracing::debug!("source en échec pour {id} : {e}");
@@ -104,16 +130,15 @@ impl JsonSource for TrnApiSource {
         "trn-api"
     }
 
-    fn profile_url(&self, id: &PlayerId) -> String {
+    fn profile_url(&self, id: &PlayerId, handle: &str) -> String {
         format!(
-            "https://public-api.tracker.gg/v2/rocket-league/standard/profile/{}/{}",
-            id.platform.tracker_slug(),
-            id.id
+            "https://public-api.tracker.gg/v2/rocket-league/standard/profile/{}/{handle}",
+            id.platform.tracker_slug()
         )
     }
 
-    fn sessions_url(&self, id: &PlayerId) -> String {
-        format!("{}/sessions", self.profile_url(id))
+    fn sessions_url(&self, id: &PlayerId, handle: &str) -> String {
+        format!("{}/sessions", self.profile_url(id, handle))
     }
 
     async fn get_json(&self, url: &str) -> Result<Value, ScrapeError> {
@@ -153,17 +178,26 @@ mod tests {
                     total_wins: 0,
                     peak_tier: None,
                     playlists: vec![],
-                    demos_per_match: None,
                     saves_per_match: None,
                     goals_per_match: None,
                     shots_per_match: None,
                     loss_streak: 0,
+                    recent: None,
                     fetched_at: 0,
                 }),
                 Err(ScrapeError::Blocked) => Err(ScrapeError::Blocked),
                 Err(_) => Err(ScrapeError::NotFound),
             }
         }
+    }
+
+    #[test]
+    fn handle_uses_name_except_on_steam() {
+        let epic = PlayerId::new(Platform::Epic, "6897812333f244858dddff1fbb06554f");
+        assert!(matches!(profile_handle(&epic, None), Err(ScrapeError::NameRequired)));
+        assert_eq!(profile_handle(&epic, Some("Neyor. Dev")).unwrap(), "Neyor.%20Dev");
+        let steam = PlayerId::new(Platform::Steam, "76561198012345678");
+        assert_eq!(profile_handle(&steam, Some("whatever")).unwrap(), "76561198012345678");
     }
 
     #[tokio::test]

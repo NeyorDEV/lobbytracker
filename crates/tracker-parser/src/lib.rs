@@ -32,6 +32,8 @@ pub enum ParsedEvent {
     LobbyReset,
     /// Joueur local (compte connecté sur cette machine), lu dans la ligne de connexion du jeu.
     LocalPlayer { id: PlayerId, name: Option<String> },
+    /// Fin du décompte 3-2-1 : le coup d'envoi vient d'être donné (événement `RoundStarted`).
+    Kickoff,
 }
 
 static TYPED_ID: LazyLock<Regex> = LazyLock::new(|| {
@@ -156,6 +158,9 @@ pub fn parse_stats_message(raw: &str) -> Result<Vec<ParsedEvent>, ParseError> {
 
     if matches!(event, "MatchCreated" | "MatchInitialized" | "MatchDestroyed") {
         out.push(ParsedEvent::LobbyReset);
+    }
+    if event == "RoundStarted" {
+        out.push(ParsedEvent::Kickoff);
     }
     // `Data` est un objet (récent) ou une chaîne JSON (ancien).
     let data = match v.get("Data") {
@@ -319,6 +324,14 @@ mod tests {
         assert_eq!(parse_stats_message(&msg).unwrap().len(), 1);
         let reset = parse_stats_message(r#"{"Event":"MatchCreated","Data":{}}"#).unwrap();
         assert_eq!(reset, vec![ParsedEvent::LobbyReset]);
+    }
+
+    #[test]
+    fn round_started_is_a_kickoff() {
+        let ev = parse_stats_message(r#"{"Event":"RoundStarted","Data":{"MatchGuid":"abc"}}"#).unwrap();
+        assert_eq!(ev, vec![ParsedEvent::Kickoff]);
+        // Le début du décompte n'est pas encore le coup d'envoi.
+        assert!(parse_stats_message(r#"{"Event":"CountdownBegin","Data":{}}"#).unwrap().is_empty());
     }
 
     #[test]

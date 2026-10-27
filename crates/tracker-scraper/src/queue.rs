@@ -48,6 +48,8 @@ struct State {
     heap: BinaryHeap<Job>,
     queued: HashSet<PlayerId>,
     in_flight: Option<PlayerId>,
+    /// Pseudo à utiliser pour la requête de chaque joueur en file.
+    lookups: std::collections::HashMap<PlayerId, String>,
     seq: u64,
     /// Incrémenté par `clear` pour ignorer les résultats d'un lobby précédent.
     generation: u64,
@@ -66,9 +68,17 @@ impl TrackerQueue {
 
     /// Ajoute un joueur ; renvoie `false` s'il est déjà en file ou en cours.
     pub fn enqueue(&self, id: PlayerId, priority: Priority) -> bool {
+        self.enqueue_named(id, priority, None)
+    }
+
+    /// Comme `enqueue`, avec le pseudo requis par Tracker Network pour Epic, Xbox et PSN.
+    pub fn enqueue_named(&self, id: PlayerId, priority: Priority, lookup: Option<String>) -> bool {
         let mut s = self.state.lock().unwrap();
         if s.queued.contains(&id) || s.in_flight.as_ref() == Some(&id) {
             return false;
+        }
+        if let Some(name) = lookup.filter(|n| !n.is_empty()) {
+            s.lookups.insert(id.clone(), name);
         }
         s.seq += 1;
         let seq = s.seq;
@@ -98,7 +108,12 @@ impl TrackerQueue {
         let mut s = self.state.lock().unwrap();
         s.heap.clear();
         s.queued.clear();
+        s.lookups.clear();
         s.generation += 1;
+    }
+
+    fn take_lookup(&self, id: &PlayerId) -> Option<String> {
+        self.state.lock().unwrap().lookups.remove(id)
     }
 
     fn generation(&self) -> u64 {
@@ -128,6 +143,7 @@ impl TrackerQueue {
                     continue;
                 };
                 let gen = q.generation();
+                let lookup = q.take_lookup(&id);
 
                 if let Ok(Some(p)) = cache.get_fresh(&id, ttl_secs) {
                     q.finish();
@@ -135,7 +151,7 @@ impl TrackerQueue {
                     continue;
                 }
 
-                let result = fetcher.fetch(&id, options()).await;
+                let result = fetcher.fetch(&id, FetchOptions { lookup, ..options() }).await;
                 q.finish();
                 if q.generation() != gen {
                     continue; // lobby remplacé pendant la requête
@@ -212,11 +228,11 @@ mod tests {
                 total_wins: 1,
                 peak_tier: None,
                 playlists: vec![],
-                demos_per_match: None,
                 saves_per_match: None,
                 goals_per_match: None,
                 shots_per_match: None,
                 loss_streak: 0,
+                recent: None,
                 fetched_at: 0,
             })
         }

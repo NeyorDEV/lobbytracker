@@ -15,7 +15,6 @@ pub enum ConfigError {
 pub struct Filters {
     pub smurf_suspect: bool,
     pub one_v_one_specialist: bool,
-    pub demolisher: bool,
     pub defensive_anchor: bool,
     pub on_tilt: bool,
     pub peak_disparity: bool,
@@ -27,7 +26,6 @@ impl Default for Filters {
         Self {
             smurf_suspect: true,
             one_v_one_specialist: true,
-            demolisher: true,
             defensive_anchor: true,
             on_tilt: true,
             peak_disparity: true,
@@ -35,6 +33,10 @@ impl Default for Filters {
         }
     }
 }
+
+/// Port du serveur local (OBS). Le 49124 est réservé par la Stats API du jeu (`WebPort`).
+pub const DEFAULT_SERVER_PORT: u16 = 49125;
+const OLD_SERVER_PORT: u16 = 49124;
 
 /// Disposition de l'overlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -49,6 +51,56 @@ pub enum OverlayLayout {
     CardVertical,
     /// Cartes côte à côte.
     CardHorizontal,
+}
+
+/// Couleurs de l'overlay, au format `#rrggbb`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OverlayColors {
+    pub background: String,
+    pub text: String,
+    pub muted: String,
+    /// Liseré des adversaires, des coéquipiers et des joueurs d'équipe inconnue.
+    pub opponent: String,
+    pub teammate: String,
+    pub unknown: String,
+    pub badge_smurf: String,
+    pub badge_one_v_one: String,
+    pub badge_anchor: String,
+    pub badge_tilt: String,
+    pub badge_peak: String,
+}
+
+impl Default for OverlayColors {
+    fn default() -> Self {
+        let s = |v: &str| v.to_string();
+        Self {
+            background: s("#0c0e14"),
+            text: s("#ffffff"),
+            muted: s("#9aa4b8"),
+            opponent: s("#ff7a2b"),
+            teammate: s("#3b9dff"),
+            unknown: s("#888888"),
+            badge_smurf: s("#e03a3a"),
+            badge_one_v_one: s("#7b2cff"),
+            badge_anchor: s("#7b2cff"),
+            badge_tilt: s("#6b7280"),
+            badge_peak: s("#b7791f"),
+        }
+    }
+}
+
+/// Quand l'overlay se masque tout seul après l'arrivée d'un lobby.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoHideMode {
+    /// Jamais : l'overlay reste affiché.
+    #[default]
+    Off,
+    /// Dès la fin du décompte 3-2-1 (événement `RoundStarted` de la Stats API).
+    Kickoff,
+    /// Après `auto_hide_seconds` secondes.
+    Timer,
 }
 
 /// Emplacement de l'overlay : libre (glisser-déposer) ou accroché à un coin / bord de l'écran.
@@ -113,12 +165,13 @@ pub struct Config {
     pub overlay_scale: u32,
     /// Opacité du fond des cartes, en pourcentage (10 à 100).
     pub overlay_opacity: u32,
+    pub overlay_colors: OverlayColors,
     pub overlay_anchor: OverlayAnchor,
     /// Marges par rapport au bord de l'écran, en pixels logiques.
     pub overlay_margin_x: u32,
     pub overlay_margin_y: u32,
     /// Masque l'overlay quelques secondes après l'arrivée des joueurs d'un nouveau lobby.
-    pub auto_hide_enabled: bool,
+    pub auto_hide_mode: AutoHideMode,
     pub auto_hide_seconds: u32,
     pub overlay_position: Option<OverlayPosition>,
     /// Jeton API officiel Tracker Network (fallback).
@@ -127,6 +180,13 @@ pub struct Config {
     pub use_webview_scraper: bool,
     pub stats_api_enabled: bool,
     pub stats_api_port: u16,
+    /// Fréquence d'envoi voulue (`PacketSendRate`) quand LobbyTracker règle la Stats API du jeu.
+    pub stats_api_rate: u32,
+    /// Vrai après un premier « Réappliquer le réglage » : l'application remet alors le réglage
+    /// en place d'elle-même si une mise à jour du jeu l'a effacé.
+    pub stats_api_managed: bool,
+    /// Dossier de Rocket League choisi à la main, si la détection automatique ne le trouve pas.
+    pub rocket_league_dir: Option<PathBuf>,
     /// Port du serveur local (overlay OBS, WebSocket).
     pub server_port: u16,
     /// Chemin de `Launch.log` si différent du chemin par défaut.
@@ -151,17 +211,21 @@ impl Default for Config {
             overlay_layout: OverlayLayout::default(),
             overlay_scale: 100,
             overlay_opacity: 82,
+            overlay_colors: OverlayColors::default(),
             overlay_anchor: OverlayAnchor::default(),
             overlay_margin_x: 24,
             overlay_margin_y: 24,
-            auto_hide_enabled: false,
+            auto_hide_mode: AutoHideMode::Off,
             auto_hide_seconds: 30,
             overlay_position: None,
             trn_api_key: None,
             use_webview_scraper: true,
             stats_api_enabled: true,
             stats_api_port: 49123,
-            server_port: 49124,
+            stats_api_rate: 10,
+            stats_api_managed: false,
+            rocket_league_dir: None,
+            server_port: DEFAULT_SERVER_PORT,
             log_path: None,
             self_name: None,
             self_id: None,
@@ -176,7 +240,14 @@ impl Config {
     /// Charge la configuration ; un fichier absent donne la configuration par défaut.
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         match std::fs::read_to_string(path) {
-            Ok(s) => Ok(serde_json::from_str(&s)?),
+            Ok(s) => {
+                let mut cfg: Self = serde_json::from_str(&s)?;
+                // Ancienne valeur par défaut, en conflit avec le `WebPort` du jeu.
+                if cfg.server_port == OLD_SERVER_PORT {
+                    cfg.server_port = DEFAULT_SERVER_PORT;
+                }
+                Ok(cfg)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e.into()),
         }
@@ -235,6 +306,18 @@ mod tests {
         assert_eq!(OverlayAnchor::BottomRight.position(mon, win, m), Some((1496, 856)));
         // Deuxième écran positionné à droite du premier.
         assert_eq!(OverlayAnchor::TopLeft.position((1920, 0, 1280, 720), win, m), Some((1944, 24)));
+    }
+
+    #[test]
+    fn old_default_server_port_is_migrated() {
+        let dir = std::env::temp_dir().join(format!("lt-port-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        std::fs::write(&path, r#"{"server_port":49124}"#).unwrap();
+        assert_eq!(Config::load(&path).unwrap().server_port, DEFAULT_SERVER_PORT);
+        std::fs::write(&path, r#"{"server_port":50000}"#).unwrap();
+        assert_eq!(Config::load(&path).unwrap().server_port, 50000);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

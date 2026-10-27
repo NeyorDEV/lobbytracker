@@ -1,4 +1,4 @@
-//! Smurf Index et attribution des badges, en respectant les filtres de l'utilisateur.
+﻿//! Smurf Index et attribution des badges, en respectant les filtres de l'utilisateur.
 //!
 //! Un badge dont la case est décochée n'est jamais calculé ni exposé : l'overlay ne reçoit
 //! aucune trace de la catégorie masquée.
@@ -8,16 +8,20 @@ use tracker_core::{
     RankView, Relation, Team,
 };
 
-/// Écart de tiers entre le 1v1 et le reste du lobby pour déclencher « Spécialiste 1v1 ».
+/// Écart de tiers entre le 1v1 et le reste du lobby pour déclencher « Joueur 1v1 ».
 const DUEL_GAP: f32 = 2.0;
 const DUEL_MIN_MATCHES: u32 = 10;
-/// Valeur de repli de démolitions/match quand le lobby est trop petit pour une moyenne.
-const DEFAULT_DEMOS: f32 = 0.5;
-const DEMO_RATIO: f32 = 1.6;
-const DEMO_FLOOR: f32 = 0.7;
 const ANCHOR_SAVES: f32 = 1.6;
 const ANCHOR_SAVES_TO_GOALS: f32 = 2.5;
-const TILT_STREAK: u32 = 4;
+const TILT_STREAK: u32 = 3;
+/// Montée rapide en classé : assez de matchs récents, très bon taux de victoire et MMR en hausse.
+const RAPID_MIN_MATCHES: u32 = 15;
+const RAPID_WIN_RATE: f32 = 0.7;
+const RAPID_MMR_GAIN: i32 = 150;
+/// Points ajoutés à l'indice smurf pour une montée rapide.
+const RAPID_INDEX_BONUS: u32 = 20;
+/// Une montée rapide est suspecte à partir de ce nombre de tiers sous le seuil smurf.
+const RAPID_TIER_MARGIN: u32 = 4;
 /// Écart minimal avec le pic, à condition que ce pic soit au moins Champion 2.
 const PEAK_GAP: u32 = 2;
 const PEAK_MIN_TIER: u32 = tracker_core::TIER_C2;
@@ -42,19 +46,14 @@ pub struct LobbyEntry {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LobbyContext {
     pub median_team_tier: Option<f32>,
-    pub avg_demos: Option<f32>,
 }
 
 impl LobbyContext {
     pub fn from_profiles<'a>(profiles: impl IntoIterator<Item = &'a PlayerProfile>) -> Self {
         let mut tiers: Vec<u32> = Vec::new();
-        let mut demos: Vec<f32> = Vec::new();
         for p in profiles {
             if let Some(t) = p.best_team_tier() {
                 tiers.push(t);
-            }
-            if let Some(d) = p.demos_per_match {
-                demos.push(d);
             }
         }
         tiers.sort_unstable();
@@ -63,8 +62,7 @@ impl LobbyContext {
             n if n % 2 == 1 => Some(tiers[n / 2] as f32),
             n => Some((tiers[n / 2 - 1] + tiers[n / 2]) as f32 / 2.0),
         };
-        let avg_demos = (demos.len() >= 3).then(|| demos.iter().sum::<f32>() / demos.len() as f32);
-        Self { median_team_tier, avg_demos }
+        Self { median_team_tier }
     }
 }
 
@@ -74,13 +72,23 @@ pub struct Analysis {
     pub badges: Vec<Badge>,
 }
 
-/// Indice de 0 à 100 : plus un compte a peu de victoires pour son rang, plus il est élevé.
+/// Vrai si les matchs classés récents montrent une ascension anormalement rapide.
+pub fn rapid_climb(p: &PlayerProfile) -> bool {
+    p.recent.is_some_and(|r| {
+        r.matches >= RAPID_MIN_MATCHES && r.win_rate() >= RAPID_WIN_RATE && r.mmr_gain >= RAPID_MMR_GAIN
+    })
+}
+
+/// Indice de 0 à 100 : plus un compte a peu de victoires pour son rang, plus il est élevé ;
+/// une montée rapide récente l'augmente.
 pub fn smurf_index(p: &PlayerProfile, cfg: &Config) -> u32 {
     let max_wins = cfg.smurf_max_wins.max(1) as f32;
     let wins_factor = (1.0 - p.total_wins as f32 / (2.0 * max_wins)).clamp(0.0, 1.0);
     let floor = cfg.smurf_min_tier.saturating_sub(3) as f32;
     let tier_factor = ((p.best_tier() as f32 - floor) / 6.0).clamp(0.0, 1.0);
-    (100.0 * (wins_factor * tier_factor).sqrt()).round() as u32
+    let base = (100.0 * (wins_factor * tier_factor).sqrt()).round() as u32;
+    let bonus = if rapid_climb(p) { RAPID_INDEX_BONUS } else { 0 };
+    (base + bonus).min(100)
 }
 
 pub fn analyze(p: &PlayerProfile, ctx: &LobbyContext, cfg: &Config) -> Analysis {
@@ -90,7 +98,12 @@ pub fn analyze(p: &PlayerProfile, ctx: &LobbyContext, cfg: &Config) -> Analysis 
 
     if f.smurf_suspect {
         out.smurf_index = smurf_index(p, cfg);
-        if p.total_wins < cfg.smurf_max_wins && best >= cfg.smurf_min_tier {
+        let low_wins_high_rank = p.total_wins < cfg.smurf_max_wins && best >= cfg.smurf_min_tier;
+        // Compte encore récent qui grimpe très vite, même si son rang n'a pas atteint le seuil.
+        let climbing = rapid_climb(p)
+            && p.total_wins < cfg.smurf_max_wins.saturating_mul(2)
+            && best + RAPID_TIER_MARGIN >= cfg.smurf_min_tier;
+        if low_wins_high_rank || climbing {
             out.badges.push(Badge::SmurfSuspect);
         }
     }
@@ -101,15 +114,6 @@ pub fn analyze(p: &PlayerProfile, ctx: &LobbyContext, cfg: &Config) -> Analysis 
             let reference = ctx.median_team_tier.or_else(|| p.best_team_tier().map(|t| t as f32));
             if reference.is_some_and(|r| d.tier as f32 >= r + DUEL_GAP) {
                 out.badges.push(Badge::OneVOneSpecialist);
-            }
-        }
-    }
-
-    if f.demolisher {
-        if let Some(d) = p.demos_per_match {
-            let baseline = ctx.avg_demos.unwrap_or(DEFAULT_DEMOS);
-            if d >= DEMO_FLOOR && d >= baseline * DEMO_RATIO {
-                out.badges.push(Badge::Demolisher);
             }
         }
     }
@@ -182,7 +186,14 @@ fn view_of(e: &LobbyEntry, ctx: &LobbyContext, cfg: &Config) -> PlayerView {
             let a = analyze(p, ctx, cfg);
             v.status = PlayerStatus::Ready;
             v.smurf_index = a.smurf_index;
-            v.badge_labels = a.badges.iter().map(|b| b.label_fr().to_string()).collect();
+            v.badge_labels = a
+                .badges
+                .iter()
+                .map(|b| match b {
+                    Badge::OnTilt => format!("{} : {}", b.label_fr(), p.loss_streak),
+                    _ => b.label_fr().to_string(),
+                })
+                .collect();
             v.badges = a.badges;
             if !p.display_name.is_empty() {
                 v.name = p.display_name.clone();
@@ -213,7 +224,7 @@ fn view_of(e: &LobbyEntry, ctx: &LobbyContext, cfg: &Config) -> PlayerView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tracker_core::{Platform, PlaylistStat};
+    use tracker_core::{Platform, PlaylistStat, RecentForm};
 
     fn pl(kind: PlaylistKind, tier: u32, matches: u32) -> PlaylistStat {
         PlaylistStat { kind, tier, mmr: None, matches }
@@ -226,11 +237,11 @@ mod tests {
             total_wins: 1000,
             peak_tier: None,
             playlists: vec![pl(PlaylistKind::Standard, 14, 100)],
-            demos_per_match: None,
             saves_per_match: None,
             goals_per_match: None,
             shots_per_match: None,
             loss_streak: 0,
+            recent: None,
             fetched_at: 0,
         }
     }
@@ -288,7 +299,7 @@ mod tests {
     fn one_v_one_specialist_relative_to_lobby() {
         let mut p = base("1");
         p.playlists = vec![pl(PlaylistKind::Duel, 18, 60), pl(PlaylistKind::Standard, 15, 60)];
-        let ctx = LobbyContext { median_team_tier: Some(14.0), avg_demos: None };
+        let ctx = LobbyContext { median_team_tier: Some(14.0) };
         let mut cfg = Config::default();
         assert!(analyze(&p, &ctx, &cfg).badges.contains(&Badge::OneVOneSpecialist));
         cfg.filters.one_v_one_specialist = false;
@@ -307,17 +318,6 @@ mod tests {
     }
 
     #[test]
-    fn demolisher_compares_against_lobby_average() {
-        let cfg = Config::default();
-        let mut p = base("1");
-        p.demos_per_match = Some(1.5);
-        let ctx = LobbyContext { median_team_tier: None, avg_demos: Some(0.6) };
-        assert!(analyze(&p, &ctx, &cfg).badges.contains(&Badge::Demolisher));
-        let ctx_high = LobbyContext { median_team_tier: None, avg_demos: Some(1.4) };
-        assert!(!analyze(&p, &ctx_high, &cfg).badges.contains(&Badge::Demolisher));
-    }
-
-    #[test]
     fn defensive_anchor_needs_saves_over_goals() {
         let cfg = Config::default();
         let mut p = base("1");
@@ -329,12 +329,43 @@ mod tests {
     }
 
     #[test]
-    fn tilt_triggers_at_four_losses() {
+    fn rapid_climb_flags_a_young_account_below_the_rank_threshold() {
+        let cfg = Config::default(); // seuil Champion 2 (17), 250 victoires
+        let mut p = base("1");
+        p.total_wins = 300;
+        p.playlists = vec![pl(PlaylistKind::Doubles, 14, 60)];
+        assert!(!badges(&p, &cfg).contains(&Badge::SmurfSuspect));
+        p.recent = Some(RecentForm { matches: 24, wins: 19, mmr_gain: 210 });
+        assert!(badges(&p, &cfg).contains(&Badge::SmurfSuspect));
+        // Vétéran : la même série ne suffit pas.
+        p.total_wins = 2000;
+        assert!(!badges(&p, &cfg).contains(&Badge::SmurfSuspect));
+        // Pas assez de matchs, ou MMR en baisse : aucun signal.
+        p.total_wins = 300;
+        p.recent = Some(RecentForm { matches: 8, wins: 8, mmr_gain: 90 });
+        assert!(!rapid_climb(&p));
+        p.recent = Some(RecentForm { matches: 24, wins: 19, mmr_gain: -20 });
+        assert!(!rapid_climb(&p));
+    }
+
+    #[test]
+    fn rapid_climb_raises_the_smurf_index() {
         let cfg = Config::default();
         let mut p = base("1");
-        p.loss_streak = 3;
+        p.total_wins = 300;
+        p.playlists = vec![pl(PlaylistKind::Doubles, 16, 60)];
+        let before = smurf_index(&p, &cfg);
+        p.recent = Some(RecentForm { matches: 30, wins: 24, mmr_gain: 300 });
+        assert_eq!(smurf_index(&p, &cfg), (before + 20).min(100));
+    }
+
+    #[test]
+    fn tilt_triggers_at_three_losses() {
+        let cfg = Config::default();
+        let mut p = base("1");
+        p.loss_streak = 2;
         assert!(!badges(&p, &cfg).contains(&Badge::OnTilt));
-        p.loss_streak = 4;
+        p.loss_streak = 3;
         assert!(badges(&p, &cfg).contains(&Badge::OnTilt));
     }
 
@@ -406,17 +437,13 @@ mod tests {
     }
 
     #[test]
-    fn lobby_context_median_and_demo_average() {
-        let mut a = base("1");
-        a.demos_per_match = Some(0.4);
+    fn lobby_context_median() {
+        let a = base("1");
         let mut b = base("2");
-        b.demos_per_match = Some(0.6);
         b.playlists = vec![pl(PlaylistKind::Doubles, 16, 10)];
         let mut c = base("3");
-        c.demos_per_match = Some(0.8);
         c.playlists = vec![pl(PlaylistKind::Doubles, 18, 10)];
         let ctx = LobbyContext::from_profiles([&a, &b, &c]);
         assert_eq!(ctx.median_team_tier, Some(16.0));
-        assert!((ctx.avg_demos.unwrap() - 0.6).abs() < 1e-5);
     }
 }

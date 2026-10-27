@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 pub enum Badge {
     SmurfSuspect,
     OneVOneSpecialist,
-    Demolisher,
     DefensiveAnchor,
     OnTilt,
     PeakDisparity,
@@ -15,11 +14,10 @@ pub enum Badge {
 impl Badge {
     pub fn label_fr(self) -> &'static str {
         match self {
-            Badge::SmurfSuspect => "Smurf suspect",
-            Badge::OneVOneSpecialist => "Spécialiste 1v1",
-            Badge::Demolisher => "Démolisseur",
-            Badge::DefensiveAnchor => "Ancre défensive",
-            Badge::OnTilt => "En tilt",
+            Badge::SmurfSuspect => "Potentiel smurf",
+            Badge::OneVOneSpecialist => "Joueur 1v1",
+            Badge::DefensiveAnchor => "Gardien",
+            Badge::OnTilt => "Lose streak",
             Badge::PeakDisparity => "Ancien haut rang",
         }
     }

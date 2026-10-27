@@ -5,7 +5,7 @@
 
 use crate::ScrapeError;
 use serde_json::Value;
-use tracker_core::{unix_now, PlayerId, PlayerProfile, PlaylistKind, PlaylistStat};
+use tracker_core::{unix_now, PlayerId, PlayerProfile, PlaylistKind, PlaylistStat, RecentForm};
 
 fn num(v: &Value, path: &[&str]) -> Option<f64> {
     let mut cur = v;
@@ -65,7 +65,9 @@ pub fn parse_profile(json: &Value, id: &PlayerId) -> Result<PlayerProfile, Scrap
     let mut playlists = Vec::new();
     let mut peak_tier: Option<u32> = None;
     let mut wins = 0u32;
-    let (mut goals, mut saves, mut shots, mut demos, mut matches_total) = (None, None, None, None, None);
+    let (mut goals, mut saves, mut shots, mut matches_total) = (None, None, None, None);
+    // Moyennes par match fournies par Tracker Network (une entrée `playlistAverage` par mode).
+    let (mut avg_matches, mut avg_goals, mut avg_saves, mut avg_shots) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
 
     for seg in segments {
         let kind = text(seg, &["type"]).unwrap_or("");
@@ -76,20 +78,28 @@ pub fn parse_profile(json: &Value, id: &PlayerId) -> Result<PlayerProfile, Scrap
                 goals = num(&stats, &["goals", "value"]);
                 saves = num(&stats, &["saves", "value"]);
                 shots = num(&stats, &["shots", "value"]);
-                demos = num(&stats, &["demolishes", "value"])
-                    .or_else(|| num(&stats, &["demos", "value"]))
-                    .or_else(|| num(&stats, &["demolitions", "value"]));
                 matches_total = num(&stats, &["matchesPlayed", "value"]);
             }
             "playlist" => {
                 let name = text(seg, &["metadata", "name"]).unwrap_or("");
                 let tier = num(&stats, &["tier", "value"]).unwrap_or(0.0) as u32;
+                if let Some(t) = num(&stats, &["peakTier", "value"]).map(|v| v as u32).filter(|t| *t > 0) {
+                    peak_tier = Some(peak_tier.map_or(t, |p| p.max(t)));
+                }
                 playlists.push(PlaylistStat {
                     kind: PlaylistKind::from_name(name),
                     tier,
                     mmr: num(&stats, &["rating", "value"]).map(|v| v as u32),
                     matches: num(&stats, &["matchesPlayed", "value"]).unwrap_or(0.0) as u32,
                 });
+            }
+            "playlistAverage" => {
+                let m = num(&stats, &["matches", "value"]).or_else(|| num(&stats, &["matches"])).unwrap_or(0.0);
+                let get = |k: &str| num(&stats, &[k, "value"]).or_else(|| num(&stats, &[k])).unwrap_or(0.0);
+                avg_matches += m;
+                avg_goals += get("avgGoalsPerGame") * m;
+                avg_saves += get("avgSavesPerGame") * m;
+                avg_shots += get("avgShotsPerGame") * m;
             }
             "peak-rating" => {
                 // Tier de pointe direct si fourni, sinon estimation depuis le MMR de pointe.
@@ -114,6 +124,8 @@ pub fn parse_profile(json: &Value, id: &PlayerId) -> Result<PlayerProfile, Scrap
         (Some(t), Some(m)) => Some((t / m) as f32),
         _ => None,
     };
+    // Les moyennes officielles par mode sont plus fiables que le total estimé.
+    let from_avg = |sum: f64| (avg_matches > 0.0).then(|| (sum / avg_matches) as f32);
 
     Ok(PlayerProfile {
         id: id.clone(),
@@ -121,11 +133,11 @@ pub fn parse_profile(json: &Value, id: &PlayerId) -> Result<PlayerProfile, Scrap
         total_wins: wins,
         peak_tier,
         playlists,
-        demos_per_match: per(demos),
-        saves_per_match: per(saves),
-        goals_per_match: per(goals),
-        shots_per_match: per(shots),
+        saves_per_match: from_avg(avg_saves).or_else(|| per(saves)),
+        goals_per_match: from_avg(avg_goals).or_else(|| per(goals)),
+        shots_per_match: from_avg(avg_shots).or_else(|| per(shots)),
         loss_streak: 0,
+        recent: None,
         fetched_at: unix_now(),
     })
 }
@@ -148,12 +160,46 @@ pub fn parse_loss_streak(json: &Value) -> u32 {
     streak
 }
 
+/// Forme récente en classé (duel, 2v2, 3v3) : les `RECENT_MATCHES` derniers matchs, du plus récent
+/// au plus ancien. Les lignes regroupées (« 3 wins ») comptent pour `matchesPlayed` matchs.
+pub fn parse_recent_form(json: &Value) -> Option<RecentForm> {
+    const RECENT_MATCHES: u32 = 30;
+    let items = json.pointer("/data/items")?.as_array()?;
+    let mut form = RecentForm { matches: 0, wins: 0, mmr_gain: 0 };
+    'outer: for session in items {
+        let Some(matches) = session.get("matches").and_then(Value::as_array) else { continue };
+        for m in matches {
+            let playlist = text(m, &["metadata", "playlist"]).unwrap_or("");
+            if !PlaylistKind::from_name(playlist).is_core_ranked() {
+                continue;
+            }
+            let n = num(m, &["stats", "matchesPlayed", "value"]).unwrap_or(1.0).max(1.0) as u32;
+            let wins = match match_result(m) {
+                Some(true) => num(m, &["stats", "wins", "value"]).map_or(n, |w| w as u32).min(n),
+                Some(false) => 0,
+                None => continue,
+            };
+            form.matches += n;
+            form.wins += wins;
+            form.mmr_gain += num(m, &["stats", "rating", "metadata", "ratingDelta"]).unwrap_or(0.0) as i32;
+            if form.matches >= RECENT_MATCHES {
+                break 'outer;
+            }
+        }
+    }
+    (form.matches > 0).then_some(form)
+}
+
 /// `Some(true)` = victoire, `Some(false)` = défaite.
 fn match_result(m: &Value) -> Option<bool> {
     if let Some(r) = text(m, &["metadata", "result"]) {
-        return match r.to_ascii_lowercase().as_str() {
+        let r = r.to_ascii_lowercase();
+        return match r.as_str() {
             "win" | "victory" => Some(true),
             "loss" | "defeat" | "lose" => Some(false),
+            // Matchs regroupés par Tracker Network : « 3 wins », « 2 losses ».
+            g if g.ends_with("wins") => Some(true),
+            g if g.ends_with("losses") => Some(false),
             _ => None,
         };
     }
@@ -177,7 +223,7 @@ mod tests {
             "segments": [
                 {"type":"overview","stats":{
                     "wins":{"value":100.0},"goals":{"value":150.0},"saves":{"value":260.0},
-                    "shots":{"value":500.0},"demolishes":{"value":240.0}}},
+                    "shots":{"value":500.0}}},
                 {"type":"playlist","metadata":{"name":"Ranked Duel 1v1"},
                  "stats":{"tier":{"value":18.0},"rating":{"value":1350.0},"matchesPlayed":{"value":40.0}}},
                 {"type":"playlist","metadata":{"name":"Ranked Doubles 2v2"},
@@ -191,7 +237,6 @@ mod tests {
         assert_eq!(p.tier_of(PlaylistKind::Duel), Some(18));
         assert_eq!(p.peak_tier, Some(20));
         // 200 matchs estimés (2 × victoires)
-        assert!((p.demos_per_match.unwrap() - 1.2).abs() < 1e-5);
         assert!((p.saves_per_match.unwrap() - 1.3).abs() < 1e-5);
     }
 
@@ -221,6 +266,47 @@ mod tests {
             {"metadata":{"result":"win"}},{"metadata":{"result":"loss"}}]}]}});
         assert_eq!(parse_loss_streak(&j), 4);
         assert_eq!(parse_loss_streak(&json!({})), 0);
+    }
+
+    #[test]
+    fn recent_form_sums_ranked_matches_and_mmr() {
+        let m = |res: &str, pl: &str, delta: i64| json!({"metadata":{"result":res,"playlist":pl},
+            "stats":{"rating":{"metadata":{"ratingDelta":delta}}}});
+        let j = json!({"data":{"items":[{"matches":[
+            m("victory", "Ranked Doubles 2v2", 10),
+            m("defeat", "Ranked Doubles 2v2", -9),
+            m("victory", "Casual", 0),
+            {"metadata":{"result":"3 wins","playlist":"Ranked Duel 1v1"},
+             "stats":{"matchesPlayed":{"value":4.0},"wins":{"value":3.0},"rating":{"metadata":{"ratingDelta":20}}}}
+        ]}]}});
+        let f = parse_recent_form(&j).unwrap();
+        assert_eq!((f.matches, f.wins, f.mmr_gain), (6, 4, 21));
+        assert!(parse_recent_form(&json!({})).is_none());
+    }
+
+    #[test]
+    fn grouped_wins_end_a_loss_streak() {
+        let j = json!({"data":{"items":[{"matches":[
+            {"metadata":{"result":"defeat"}},{"metadata":{"result":"defeat"}},
+            {"metadata":{"result":"3 wins"}},{"metadata":{"result":"defeat"}}]}]}});
+        assert_eq!(parse_loss_streak(&j), 2);
+    }
+
+    #[test]
+    fn real_playlist_peak_tier_and_averages_are_used() {
+        let j = json!({"data":{"segments":[
+            {"type":"overview","stats":{"wins":{"value":100.0},"saves":{"value":999.0}}},
+            {"type":"playlist","metadata":{"name":"Ranked Doubles 2v2"},
+             "stats":{"tier":{"value":17.0},"peakTier":{"value":21.0},"matchesPlayed":{"value":50.0}}},
+            {"type":"playlistAverage","stats":{"matches":{"value":10.0},"avgSavesPerGame":{"value":2.0},
+             "avgGoalsPerGame":{"value":1.0},"avgShotsPerGame":{"value":3.0}}},
+            {"type":"playlistAverage","stats":{"matches":{"value":30.0},"avgSavesPerGame":{"value":1.0},
+             "avgGoalsPerGame":{"value":2.0},"avgShotsPerGame":{"value":3.0}}}
+        ]}});
+        let p = parse_profile(&j, &pid()).unwrap();
+        assert_eq!(p.peak_tier, Some(21));
+        assert!((p.saves_per_match.unwrap() - 1.25).abs() < 1e-5);
+        assert!((p.goals_per_match.unwrap() - 1.75).abs() < 1e-5);
     }
 
     #[test]

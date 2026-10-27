@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-statsapi-apply"
+description = "Enables the statsapi_apply command without any pre-configured scope."
+commands.allow = ["statsapi_apply"]
+
+[[permission]]
+identifier = "deny-statsapi-apply"
+description = "Denies the statsapi_apply command without any pre-configured scope."
+commands.deny = ["statsapi_apply"]

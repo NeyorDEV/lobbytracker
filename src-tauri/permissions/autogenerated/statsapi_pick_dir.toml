@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-statsapi-pick-dir"
+description = "Enables the statsapi_pick_dir command without any pre-configured scope."
+commands.allow = ["statsapi_pick_dir"]
+
+[[permission]]
+identifier = "deny-statsapi-pick-dir"
+description = "Denies the statsapi_pick_dir command without any pre-configured scope."
+commands.deny = ["statsapi_pick_dir"]

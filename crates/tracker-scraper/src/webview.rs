@@ -95,16 +95,15 @@ impl JsonSource for WebviewSource {
         "webview"
     }
 
-    fn profile_url(&self, id: &PlayerId) -> String {
+    fn profile_url(&self, id: &PlayerId, handle: &str) -> String {
         format!(
-            "https://api.tracker.gg/api/v2/rocket-league/standard/profile/{}/{}",
-            id.platform.tracker_slug(),
-            id.id
+            "https://api.tracker.gg/api/v2/rocket-league/standard/profile/{}/{handle}",
+            id.platform.tracker_slug()
         )
     }
 
-    fn sessions_url(&self, id: &PlayerId) -> String {
-        format!("{}/sessions", self.profile_url(id))
+    fn sessions_url(&self, id: &PlayerId, handle: &str) -> String {
+        format!("{}/sessions", self.profile_url(id, handle))
     }
 
     async fn get_json(&self, url: &str) -> Result<Value, ScrapeError> {
@@ -133,8 +132,24 @@ impl JsonSource for WebviewSource {
             Ok(Err(_)) => return Err(ScrapeError::Webview("canal fermé".into())),
             Ok(Ok(b)) => b,
         };
+        dump_response(url, &body);
         serde_json::from_str(&body).map_err(|e| ScrapeError::BadPayload(e.to_string()))
     }
+}
+
+/// Diagnostic : si `LOBBYTRACKER_DUMP_DIR` est défini, enregistre chaque réponse brute
+/// (utile pour ajuster le mapping quand Tracker Network change son format).
+fn dump_response(url: &str, body: &str) {
+    let Some(dir) = std::env::var_os("LOBBYTRACKER_DUMP_DIR") else { return };
+    let name: String = url
+        .rsplit("/profile/")
+        .next()
+        .unwrap_or("response")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(std::path::Path::new(&dir).join(format!("{name}.json")), body);
 }
 
 #[cfg(test)]
@@ -172,7 +187,7 @@ mod tests {
             reply: reply.map(str::to_owned),
             closed: Mutex::default(),
         });
-        let src = WebviewSource::new(driver.clone(), 49124);
+        let src = WebviewSource::new(driver.clone(), 49125);
         *driver.source.lock().unwrap() = Some(src.clone());
         (src, driver)
     }
@@ -181,7 +196,7 @@ mod tests {
     async fn returns_json_submitted_by_page_and_closes_window() {
         let (src, driver) = setup(Some(r#"{"data":{"segments":[]}}"#));
         let id = PlayerId::new(Platform::Steam, "76561198012345678");
-        let v = src.get_json(&src.profile_url(&id)).await.unwrap();
+        let v = src.get_json(&src.profile_url(&id, &id.id)).await.unwrap();
         assert!(v.get("data").is_some());
         assert_eq!(driver.closed.lock().unwrap().len(), 1);
         assert!(src.pending.lock().unwrap().is_empty());
@@ -201,8 +216,8 @@ mod tests {
 
     #[test]
     fn script_targets_local_ingest_endpoint() {
-        let s = ingest_script(49124, "abc");
-        assert!(s.contains("http://127.0.0.1:49124/ingest/abc"));
+        let s = ingest_script(49125, "abc");
+        assert!(s.contains("http://127.0.0.1:49125/ingest/abc"));
     }
 
     #[test]

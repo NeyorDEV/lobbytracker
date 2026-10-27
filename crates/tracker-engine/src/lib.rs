@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracker_cache::Cache;
-use tracker_core::{unix_now, Config, LobbySnapshot, PlayerId, Relation, Team};
+use tracker_core::{unix_now, Config, LobbySnapshot, Platform, PlayerId, Relation, Team};
 use tracker_parser::{parse_stats_message, LogParser, ParsedEvent};
 use tracker_scraper::{
     FetchOptions, Fetcher, HybridFetcher, Priority, ScrapeError, SourceFetcher, TrackerQueue,
@@ -19,6 +19,7 @@ use tracker_scraper::{
 };
 use tracker_server::ServerHandle;
 use tracker_watcher::WatchEvent;
+use tracker_heuristics::EntryState;
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -57,6 +58,8 @@ struct Inner {
     queue: Arc<TrackerQueue>,
     lobby: Mutex<Lobby>,
     snapshots: broadcast::Sender<LobbySnapshot>,
+    /// Un message par coup d'envoi (fin du décompte), pour masquer l'overlay.
+    kickoffs: broadcast::Sender<()>,
     webview: Option<WebviewSource>,
     parser: LogParser,
     /// Compte local lu dans `Launch.log` ; les champs de la config le surchargent.
@@ -85,12 +88,14 @@ impl Engine {
         }
         let webview = driver.map(|d| WebviewSource::new(d, cfg.server_port));
         let (snapshots, _) = broadcast::channel(32);
+        let (kickoffs, _) = broadcast::channel(8);
         let inner = Arc::new(Inner {
             cfg: RwLock::new(cfg),
             cache,
             queue: TrackerQueue::new(),
             lobby: Mutex::new(Lobby::default()),
             snapshots,
+            kickoffs,
             webview,
             parser: LogParser::new(),
             detected_self: Mutex::new(None),
@@ -122,6 +127,11 @@ impl Engine {
         self.inner.snapshots.subscribe()
     }
 
+    /// Notifie chaque coup d'envoi détecté par la Stats API.
+    pub fn subscribe_kickoff(&self) -> broadcast::Receiver<()> {
+        self.inner.kickoffs.subscribe()
+    }
+
     pub fn snapshot(&self) -> LobbySnapshot {
         self.inner.build_snapshot()
     }
@@ -150,29 +160,45 @@ impl Engine {
     }
 
     /// Démarre serveur local, watchers, file d'attente. À appeler depuis un runtime tokio.
-    pub async fn start(self: &Arc<Self>) -> Result<(), EngineError> {
+    ///
+    /// Un problème non bloquant (port du serveur local déjà pris, par exemple) n'empêche pas la
+    /// détection du joueur ni la surveillance du log : il est renvoyé comme avertissement.
+    pub async fn start(self: &Arc<Self>) -> Result<Vec<String>, EngineError> {
         let cfg = self.config();
         let inner = self.inner.clone();
-
-        // Serveur local (OBS + ingest WebView).
-        let ingest_src = inner.webview.clone();
-        let ingest: tracker_server::IngestFn =
-            Arc::new(move |id, body| ingest_src.as_ref().is_some_and(|w| w.submit(id, body)));
-        let server = tracker_server::start(cfg.server_port, inner.snapshots.clone(), ingest).await?;
-        *self.server.lock().unwrap() = Some(server);
-
-        let mut tasks = Vec::new();
+        let mut warnings = Vec::new();
 
         // Le jeu est souvent déjà lancé : on retrouve le compte local dans l'historique du log.
         if let Some(path) = cfg.effective_log_path() {
             inner.bootstrap_self_from(&path);
         }
 
+        // Serveur local (OBS + ingest WebView).
+        let ingest_src = inner.webview.clone();
+        let ingest: tracker_server::IngestFn =
+            Arc::new(move |id, body| ingest_src.as_ref().is_some_and(|w| w.submit(id, body)));
+        match tracker_server::start(cfg.server_port, inner.snapshots.clone(), ingest).await {
+            Ok(server) => *self.server.lock().unwrap() = Some(server),
+            Err(e) => {
+                tracing::error!("{e}");
+                warnings.push(format!(
+                    "{e}. LobbyTracker est peut-être déjà ouvert : l'overlay OBS et le scraper WebView sont indisponibles."
+                ));
+            }
+        }
+
+        let mut tasks = Vec::new();
+
         // File d'attente + worker réseau.
         let (out_tx, mut out_rx) = mpsc::unbounded_channel();
         let i = inner.clone();
         let options: Arc<dyn Fn() -> FetchOptions + Send + Sync> = Arc::new(move || FetchOptions {
-            with_sessions: i.cfg.read().map(|c| c.filters.on_tilt).unwrap_or(false),
+            with_sessions: i
+                .cfg
+                .read()
+                .map(|c| c.filters.on_tilt || c.filters.smurf_suspect)
+                .unwrap_or(false),
+            lookup: None,
         });
         tasks.push(inner.queue.spawn_worker(
             self.fetcher.clone(),
@@ -212,7 +238,7 @@ impl Engine {
 
         *self.tasks.lock().unwrap() = tasks;
         inner.emit();
-        Ok(())
+        Ok(warnings)
     }
 
     /// Reçoit le JSON renvoyé par une WebView masquée (voie IPC Tauri).
@@ -244,6 +270,16 @@ impl Drop for Engine {
 impl Inner {
     fn handle_watch_event(&self, ev: WatchEvent) {
         let events = match ev {
+            WatchEvent::LogReset => {
+                // Rocket League vient d'être (re)lancé : le compte peut avoir changé
+                // (Epic <-> Steam), on oublie l'ancien jusqu'à la prochaine connexion.
+                tracing::info!("nouveau lancement de Rocket League détecté");
+                *self.detected_self.lock().unwrap() = None;
+                self.queue.clear();
+                self.lobby.lock().unwrap().reset();
+                self.emit();
+                return;
+            }
             WatchEvent::LogLine(line) => self.parser.parse_line(&line),
             WatchEvent::StatsMessage(msg) => match parse_stats_message(&msg) {
                 Ok(e) => e,
@@ -258,11 +294,18 @@ impl Inner {
         }
     }
 
-    /// Parcourt le log existant (lecture seule) pour trouver la dernière connexion locale.
+    /// Si le jeu tourne déjà (log modifié très récemment), retrouve le compte local dans le log.
+    /// Un log ancien appartient à une session terminée : le compte a pu changer depuis, on
+    /// attend alors le prochain lancement du jeu.
     fn bootstrap_self_from(&self, path: &Path) {
         const MAX_BYTES: u64 = 64 * 1024 * 1024;
+        const RUNNING_WINDOW: Duration = Duration::from_secs(120);
         let Ok(meta) = std::fs::metadata(path) else { return };
         if meta.len() > MAX_BYTES {
+            return;
+        }
+        let recent = meta.modified().ok().and_then(|m| m.elapsed().ok()).is_some_and(|age| age <= RUNNING_WINDOW);
+        if !recent {
             return;
         }
         let Ok(bytes) = std::fs::read(path) else { return };
@@ -280,6 +323,9 @@ impl Inner {
                 self.lobby.lock().unwrap().remove(&id);
                 *self.detected_self.lock().unwrap() = Some((id, name));
                 self.emit();
+            }
+            ParsedEvent::Kickoff => {
+                let _ = self.kickoffs.send(());
             }
             ParsedEvent::LobbyReset => {
                 self.queue.clear();
@@ -320,12 +366,21 @@ impl Inner {
             return;
         }
 
-        let (state, relation) = {
+        let lookup = name.clone().filter(|n| !n.is_empty());
+        let (state, relation, loading) = {
             let mut lobby = self.lobby.lock().unwrap();
             let state = lobby.upsert(&id, name, team);
-            (state, lobby.relation_for(&id))
+            let loading = lobby.entries().iter().any(|e| e.id == id && matches!(e.state, EntryState::Loading));
+            (state, lobby.relation_for(&id), loading)
         };
         if state == Upsert::Unchanged {
+            return;
+        }
+        // Hors Steam, Tracker Network cherche par pseudo : on attend de le connaître.
+        let needs_name = id.platform != Platform::Steam;
+        if state == Upsert::Changed && loading && lookup.is_some() && needs_name {
+            self.queue.enqueue_named(id, priority_of(relation), lookup);
+            self.emit();
             return;
         }
 
@@ -337,11 +392,15 @@ impl Inner {
                     self.lobby.lock().unwrap().set_profile(profile);
                 }
                 Ok(None) => {
-                    self.queue.enqueue(id, priority_of(relation));
+                    if !needs_name || lookup.is_some() {
+                        self.queue.enqueue_named(id, priority_of(relation), lookup);
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("lecture du cache impossible : {e}");
-                    self.queue.enqueue(id, priority_of(relation));
+                    if !needs_name || lookup.is_some() {
+                        self.queue.enqueue_named(id, priority_of(relation), lookup);
+                    }
                 }
             }
         }
@@ -431,11 +490,11 @@ mod tests {
             total_wins: 90,
             peak_tier: None,
             playlists: vec![PlaylistStat { kind: PlaylistKind::Standard, tier: 19, mmr: None, matches: 50 }],
-            demos_per_match: None,
             saves_per_match: None,
             goals_per_match: None,
             shots_per_match: None,
             loss_streak: 0,
+            recent: None,
             fetched_at: unix_now(),
         }
     }
@@ -448,7 +507,7 @@ mod tests {
         let snap = e.snapshot();
         assert_eq!(snap.players.len(), 1);
         assert_eq!(snap.players[0].status, PlayerStatus::Ready);
-        assert!(snap.players[0].badge_labels.iter().any(|l| l == "Smurf suspect"));
+        assert!(snap.players[0].badge_labels.iter().any(|l| l == "Potentiel smurf"));
         assert_eq!(snap.pending, 0);
     }
 
@@ -507,6 +566,34 @@ mod tests {
     }
 
     #[test]
+    fn stale_log_is_ignored_and_new_launch_replaces_the_account() {
+        const LOGIN: &str = "Party: HandleLocalPlayerLoginStatusChanged PlayerName=neyor. PlayerID=Epic|6897812333f244858dddff1fbb06554f|0 LoginStatus=LS_LoggedIn IsPrimary=True IsInParty=False";
+        let e = engine(Config::default());
+        let dir = std::env::temp_dir().join(format!("lt-stale-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("Launch.log");
+        std::fs::write(&log, format!("{LOGIN}\n")).unwrap();
+        let old = std::time::SystemTime::now() - Duration::from_secs(3600);
+        std::fs::OpenOptions::new().write(true).open(&log).unwrap().set_modified(old).unwrap();
+
+        // Jeu fermé depuis une heure : on n'affiche pas un compte peut-être périmé.
+        e.inner.bootstrap_self_from(&log);
+        assert_eq!(e.snapshot().me, None);
+
+        // Nouveau lancement avec un autre compte (Steam).
+        e.inner.handle_watch_event(WatchEvent::LogReset);
+        e.inner.handle_watch_event(WatchEvent::LogLine(LOGIN.into()));
+        assert_eq!(e.snapshot().me.as_deref(), Some("neyor. · epic"));
+        e.inner.handle_watch_event(WatchEvent::LogReset);
+        assert_eq!(e.snapshot().me, None, "le relancement efface l'ancien compte");
+        e.inner.handle_watch_event(WatchEvent::LogLine(
+            "Party: HandleLocalPlayerLoginStatusChanged PlayerName=SteamMe PlayerID=Steam|76561198012345678|0 LoginStatus=LS_LoggedIn IsPrimary=True".into(),
+        ));
+        assert_eq!(e.snapshot().me.as_deref(), Some("SteamMe · steam"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn preview_shows_demo_badges_respects_filters_and_restores_real_lobby() {
         let mut cfg = Config::default();
         let e = engine(cfg.clone());
@@ -515,12 +602,13 @@ mod tests {
         let snap = e.snapshot();
         assert!(snap.players.iter().any(|p| p.name == "BumpMachine"));
         let all: Vec<_> = snap.players.iter().flat_map(|p| p.badge_labels.clone()).collect();
-        for l in ["Smurf suspect", "Spécialiste 1v1", "Démolisseur", "Ancre défensive", "En tilt", "Ancien haut rang"] {
-            assert!(all.iter().any(|x| x == l), "badge démo manquant : {l}");
+        for l in ["Potentiel smurf", "Joueur 1v1", "Gardien", "Lose streak", "Ancien haut rang"] {
+            let l = l.to_string();
+            assert!(all.iter().any(|x| x.starts_with(&l)), "badge démo manquant : {l}");
         }
         cfg.filters.on_tilt = false;
         e.update_config(cfg);
-        assert!(!e.snapshot().players.iter().any(|p| p.badge_labels.iter().any(|l| l == "En tilt")));
+        assert!(!e.snapshot().players.iter().any(|p| p.badge_labels.iter().any(|l| l.starts_with("Lose streak"))));
         e.set_preview(false);
         let real = e.snapshot();
         assert_eq!(real.players.len(), 1);

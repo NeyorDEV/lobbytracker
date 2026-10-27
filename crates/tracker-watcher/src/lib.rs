@@ -12,6 +12,8 @@ use tokio::task::JoinHandle;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WatchEvent {
     LogLine(String),
+    /// `Launch.log` a été recréé ou tronqué : Rocket League vient d'être (re)lancé.
+    LogReset,
     StatsMessage(String),
 }
 
@@ -123,16 +125,27 @@ async fn tail_once(
 ) -> std::io::Result<()> {
     // Rust ouvre les fichiers avec FILE_SHARE_READ|WRITE|DELETE : le jeu n'est jamais gêné.
     let mut file = tokio::fs::File::open(path).await?;
-    let mut pos = if start_at_end { file.metadata().await?.len() } else { 0 };
+    let meta = file.metadata().await?;
+    let mut created = meta.created().ok();
+    let mut pos = if start_at_end { meta.len() } else { 0 };
+    if !start_at_end && tx.send(WatchEvent::LogReset).await.is_err() {
+        return Ok(()); // le fichier réapparaît : nouveau lancement du jeu
+    }
     let mut splitter = LineSplitter::default();
     let mut buf = vec![0u8; 64 * 1024];
     loop {
-        let len = tokio::fs::metadata(path).await?.len();
-        if len < pos {
-            // Fichier recréé par un nouveau lancement du jeu.
+        let meta = tokio::fs::metadata(path).await?;
+        let len = meta.len();
+        let now_created = meta.created().ok();
+        if len < pos || now_created != created {
+            // Fichier recréé ou tronqué par un nouveau lancement du jeu.
             pos = 0;
+            created = now_created;
             splitter.reset();
             file = tokio::fs::File::open(path).await?;
+            if tx.send(WatchEvent::LogReset).await.is_err() {
+                return Ok(());
+            }
         }
         if len > pos {
             file.seek(SeekFrom::Start(pos)).await?;
@@ -220,7 +233,9 @@ mod tests {
         let got = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
         assert_eq!(got, WatchEvent::LogLine("new line".into()));
 
-        std::fs::write(&path, "x\n").unwrap(); // troncature
+        std::fs::write(&path, "x\n").unwrap(); // troncature = nouveau lancement
+        let got = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
+        assert_eq!(got, WatchEvent::LogReset);
         let got = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
         assert_eq!(got, WatchEvent::LogLine("x".into()));
 

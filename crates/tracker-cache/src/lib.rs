@@ -3,7 +3,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::sync::Mutex;
-use tracker_core::{unix_now, PlayerId, PlayerProfile, PlaylistKind, PlaylistStat};
+use tracker_core::{unix_now, PlayerId, PlayerProfile, PlaylistKind, PlaylistStat, RecentForm};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CacheError {
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS players (
     display_name TEXT NOT NULL,
     total_wins INTEGER NOT NULL,
     peak_tier INTEGER,
-    demos_pm REAL, saves_pm REAL, goals_pm REAL, shots_pm REAL,
+    saves_pm REAL, goals_pm REAL, shots_pm REAL,
     loss_streak INTEGER NOT NULL DEFAULT 0,
     fetched_at INTEGER NOT NULL
 );
@@ -59,6 +59,10 @@ impl Cache {
         let _mode: String = conn.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
         conn.execute_batch("PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;")?;
         conn.execute_batch(SCHEMA)?;
+        // Colonnes ajoutées après la première version : la base existante est migrée sur place.
+        for col in ["recent_matches INTEGER", "recent_wins INTEGER", "recent_gain INTEGER"] {
+            let _ = conn.execute(&format!("ALTER TABLE players ADD COLUMN {col}"), []);
+        }
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -81,7 +85,7 @@ impl Cache {
         let key = id.key();
         let row = conn
             .query_row(
-                "SELECT display_name,total_wins,peak_tier,demos_pm,saves_pm,goals_pm,shots_pm,loss_streak,fetched_at
+                "SELECT display_name,total_wins,peak_tier,saves_pm,goals_pm,shots_pm,loss_streak,fetched_at,recent_matches,recent_wins,recent_gain
                  FROM players WHERE key=?1 AND fetched_at >= ?2",
                 params![key, now - ttl_secs],
                 |r| {
@@ -91,12 +95,19 @@ impl Cache {
                         total_wins: r.get::<_, i64>(1)? as u32,
                         peak_tier: r.get::<_, Option<i64>>(2)?.map(|v| v as u32),
                         playlists: Vec::new(),
-                        demos_per_match: r.get::<_, Option<f64>>(3)?.map(|v| v as f32),
-                        saves_per_match: r.get::<_, Option<f64>>(4)?.map(|v| v as f32),
-                        goals_per_match: r.get::<_, Option<f64>>(5)?.map(|v| v as f32),
-                        shots_per_match: r.get::<_, Option<f64>>(6)?.map(|v| v as f32),
-                        loss_streak: r.get::<_, i64>(7)? as u32,
-                        fetched_at: r.get(8)?,
+                        saves_per_match: r.get::<_, Option<f64>>(3)?.map(|v| v as f32),
+                        goals_per_match: r.get::<_, Option<f64>>(4)?.map(|v| v as f32),
+                        shots_per_match: r.get::<_, Option<f64>>(5)?.map(|v| v as f32),
+                        loss_streak: r.get::<_, i64>(6)? as u32,
+                        recent: match r.get::<_, Option<i64>>(8)? {
+                            Some(m) => Some(RecentForm {
+                                matches: m as u32,
+                                wins: r.get::<_, Option<i64>>(9)?.unwrap_or(0) as u32,
+                                mmr_gain: r.get::<_, Option<i64>>(10)?.unwrap_or(0) as i32,
+                            }),
+                            None => None,
+                        },
+                        fetched_at: r.get(7)?,
                     })
                 },
             )
@@ -125,19 +136,22 @@ impl Cache {
         let key = p.id.key();
         tx.execute(
             "INSERT OR REPLACE INTO players
-             (key,display_name,total_wins,peak_tier,demos_pm,saves_pm,goals_pm,shots_pm,loss_streak,fetched_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+             (key,display_name,total_wins,peak_tier,saves_pm,goals_pm,shots_pm,loss_streak,fetched_at,
+              recent_matches,recent_wins,recent_gain)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
             params![
                 key,
                 p.display_name,
                 p.total_wins,
                 p.peak_tier,
-                p.demos_per_match,
                 p.saves_per_match,
                 p.goals_per_match,
                 p.shots_per_match,
                 p.loss_streak,
-                p.fetched_at
+                p.fetched_at,
+                p.recent.map(|r| r.matches),
+                p.recent.map(|r| r.wins),
+                p.recent.map(|r| r.mmr_gain)
             ],
         )?;
         tx.execute("DELETE FROM playlists WHERE key=?1", params![key])?;
@@ -182,11 +196,11 @@ mod tests {
                 PlaylistStat { kind: PlaylistKind::Duel, tier: 18, mmr: Some(1500), matches: 40 },
                 PlaylistStat { kind: PlaylistKind::Doubles, tier: 17, mmr: None, matches: 10 },
             ],
-            demos_per_match: Some(1.2),
             saves_per_match: None,
             goals_per_match: Some(0.8),
             shots_per_match: Some(2.5),
             loss_streak: 3,
+            recent: Some(RecentForm { matches: 20, wins: 15, mmr_gain: 180 }),
             fetched_at,
         }
     }

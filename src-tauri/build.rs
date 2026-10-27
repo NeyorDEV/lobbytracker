@@ -10,6 +10,11 @@ fn main() {
         "toggle_overlay",
         "set_preview",
         "submit_scrape",
+        "check_update",
+        "install_update",
+        "statsapi_status",
+        "statsapi_apply",
+        "statsapi_pick_dir",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("échec de tauri-build");

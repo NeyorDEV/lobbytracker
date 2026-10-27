@@ -14,6 +14,11 @@
     "allow-default-log-path",
     "allow-set-click-through",
     "allow-toggle-overlay",
-    "allow-set-preview"
+    "allow-set-preview",
+    "allow-check-update",
+    "allow-install-update",
+    "allow-statsapi-status",
+    "allow-statsapi-apply",
+    "allow-statsapi-pick-dir"
   ]
 }

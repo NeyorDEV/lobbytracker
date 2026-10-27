@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-statsapi-status"
+description = "Enables the statsapi_status command without any pre-configured scope."
+commands.allow = ["statsapi_status"]
+
+[[permission]]
+identifier = "deny-statsapi-status"
+description = "Denies the statsapi_status command without any pre-configured scope."
+commands.deny = ["statsapi_status"]
