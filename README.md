@@ -109,8 +109,4 @@ Les tests couvrent le parseur (formats d'ID, faux positifs, Stats API), les heur
 
 ## Licence
 
-Distribué sous [licence MIT](LICENSE) : vous pouvez utiliser, copier, modifier et redistribuer ce code, y compris dans un projet commercial, à condition de conserver la mention de copyright et le texte de la licence. Le logiciel est fourni « tel quel », sans garantie.
-
-Copyright (c) 2026 [NeyorDEV](https://github.com/NeyorDEV)
-
-Ce projet est désormais fusionné dans [RL Tracker Suite](https://github.com/NeyorDEV/rl-tracker-suite), également sous licence MIT.
+Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de détails.
