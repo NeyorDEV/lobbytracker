@@ -31,7 +31,7 @@ LobbyTracker n'interagit **jamais** avec le processus du jeu.
   | Démolisseur | ≥ 1,6 × la moyenne du lobby et ≥ 0,7 démo/match |
   | Ancre défensive | ≥ 1,6 arrêt/match et arrêts ≥ 2,5 × buts |
   | En tilt | ≥ 4 défaites consécutives |
-  | Écart de rang historique | Pic ≥ Champion 2 et rang actuel inférieur au pic |
+  | Écart de rang historique | Pic ≥ Champion 2 et rang actuel ≥ 2 tiers sous le pic |
   | Adversaires uniquement | Masque les coéquipiers |
 - **Overlay Tauri** : transparent, sans bordure, toujours au-dessus, raccourcis globaux configurables (`F9` afficher/masquer, `Ctrl+Shift+C` click-through), déplacement libre avec position sauvegardée.
 - **OBS** : ajoutez une *Source Navigateur* sur `http://127.0.0.1:49124/obs` (fond transparent, mise à jour par WebSocket).

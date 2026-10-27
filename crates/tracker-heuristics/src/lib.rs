@@ -18,8 +18,8 @@ const DEMO_FLOOR: f32 = 0.7;
 const ANCHOR_SAVES: f32 = 1.6;
 const ANCHOR_SAVES_TO_GOALS: f32 = 2.5;
 const TILT_STREAK: u32 = 4;
-/// Dès un tier de moins que le pic, à condition que ce pic soit au moins Champion 2.
-const PEAK_GAP: u32 = 1;
+/// Écart minimal avec le pic, à condition que ce pic soit au moins Champion 2.
+const PEAK_GAP: u32 = 2;
 const PEAK_MIN_TIER: u32 = tracker_core::TIER_C2;
 
 #[derive(Debug, Clone)]
@@ -339,22 +339,21 @@ mod tests {
     }
 
     #[test]
-    fn peak_disparity_flags_fallen_grand_champion() {
+    fn peak_disparity_needs_two_tiers_from_champion_2_peak() {
         let cfg = Config::default();
         let mut p = base("1");
-        p.peak_tier = Some(20); // GC2
-        p.playlists = vec![pl(PlaylistKind::Standard, 16, 100)]; // C1
-        assert!(badges(&p, &cfg).contains(&Badge::PeakDisparity));
-        p.playlists = vec![pl(PlaylistKind::Standard, 19, 100)];
-        assert!(badges(&p, &cfg).contains(&Badge::PeakDisparity)); // GC2 -> C3 : un tier suffit
-        p.playlists = vec![pl(PlaylistKind::Standard, 20, 100)];
-        assert!(!badges(&p, &cfg).contains(&Badge::PeakDisparity)); // au pic
-        p.peak_tier = Some(17); // pic C2
-        p.playlists = vec![pl(PlaylistKind::Standard, 16, 100)];
-        assert!(badges(&p, &cfg).contains(&Badge::PeakDisparity));
-        p.peak_tier = Some(16); // pic C1 : sous le seuil C2
-        p.playlists = vec![pl(PlaylistKind::Standard, 15, 100)];
-        assert!(!badges(&p, &cfg).contains(&Badge::PeakDisparity));
+        let mut check = |peak: u32, now: u32| {
+            p.peak_tier = Some(peak);
+            p.playlists = vec![pl(PlaylistKind::Standard, now, 100)];
+            badges(&p, &cfg).contains(&Badge::PeakDisparity)
+        };
+        assert!(check(20, 16)); // GC2 -> C1
+        assert!(check(20, 18)); // GC2 -> C3 : 2 tiers
+        assert!(!check(20, 19)); // 1 tier seulement
+        assert!(!check(20, 20)); // au pic
+        assert!(check(17, 15)); // C2 -> D3
+        assert!(!check(17, 16)); // C2 -> C1 : 1 tier
+        assert!(!check(16, 13)); // pic sous Champion 2
     }
 
     fn entry(n: &str, relation: Relation, p: Option<PlayerProfile>) -> LobbyEntry {
