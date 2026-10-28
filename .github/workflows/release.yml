@@ -1,9 +1,9 @@
 name: Release
 
-# Publie un installeur Windows (.exe NSIS) sur GitHub Releases quand on pousse un tag `vX.Y.Z`.
+# Projet fusionné dans RL Tracker Suite : plus de publication automatique sur un tag `vX.Y.Z`.
+# Les tags de redirection (v0.1.4) n'ont pas à déclencher de build ; lancement manuel seulement.
+# Un build exige le secret TAURI_SIGNING_PRIVATE_KEY (signature des mises à jour).
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
